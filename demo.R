@@ -13,3 +13,11 @@ partitions <- salso::enumerate.partitions(n_items)
 p <- apply(partitions, 1, f)
 sum(p)
 
+
+prob <- dpois(1:20, lambda)
+n_items <- 82
+
+f <- make_gupd(prob, n_items)
+f(20)
+f(21)
+
