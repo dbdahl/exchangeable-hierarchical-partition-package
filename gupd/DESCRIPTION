@@ -1,6 +1,6 @@
 Package: gupd
 Title: Generalized Uniform Partition Distribution
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(person(given = "First", family = "Last", role = c("aut", "cre"), email = "name@gmail.com", comment = c(ORCID = "ORCID-ID")),
     person(given = "Alex", family = "Crichton", email = "alex@alexcrichton.com", role = "ctb", comment = c("Rust crate: proc-macro2")),
     person(given = "David B.", family = "Dahl", email = "dahl@stat.byu.edu", role = "ctb", comment = c("Rust crates: roxido, roxido_macro")),

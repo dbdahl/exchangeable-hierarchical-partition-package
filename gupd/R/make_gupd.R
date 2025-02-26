@@ -8,6 +8,7 @@
 #' the length of this vector is less than the number of items, zero is implied
 #' for all remaining elements.
 #' @param n_items An integer for the number of items in the partition.
+#' @param log Return results on the natural logarithm scale?
 #'
 #' @return A function to evaluate the Generalized Uniform Partition Distribution.
 #' @export
@@ -16,13 +17,13 @@
 #' f(c(1, 1, 2, 2, 3, 3))
 #' f(3)
 #'
-make_gupd <- function(prob, n_items) {
-  x <- .Call(.make_gupd, prob, n_items)
+make_gupd <- function(prob, n_items, log = FALSE) {
+  x <- .Call(.make_gupd, prob, n_items, log)
   function(k) {
     msg <- function() stop(sprintf("'k' should be: 1. an integer greater than 0, or 2: a vector of cluster labels of length %s", n_items))
     if (length(k) == 0) msg()
     if (length(k) == n_items) k <- length(unique(k))
     if (length(k) != 1) msg()
-    if (k <= length(x)) x[k] else 0.0
+    if (k <= length(x)) x[k] else if (log) -Inf else 0.0
   }
 }

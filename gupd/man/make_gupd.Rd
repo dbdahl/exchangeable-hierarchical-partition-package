@@ -4,7 +4,7 @@
 \alias{make_gupd}
 \title{Generalized Uniform Partition Distribution}
 \usage{
-make_gupd(prob, n_items)
+make_gupd(prob, n_items, log = FALSE)
 }
 \arguments{
 \item{prob}{An vector of probability weights, where element \eqn{i} is the
@@ -13,6 +13,8 @@ the length of this vector is less than the number of items, zero is implied
 for all remaining elements.}
 
 \item{n_items}{An integer for the number of items in the partition.}
+
+\item{log}{Return results on the natural logarithm scale?}
 }
 \value{
 A function to evaluate the Generalized Uniform Partition Distribution.
