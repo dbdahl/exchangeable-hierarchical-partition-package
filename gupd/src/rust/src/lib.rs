@@ -1,5 +1,8 @@
 // The 'roxido_registration' macro is called at the start of the 'lib.rs' file.
 roxido_registration!();
+
+use num_bigint::BigUint;
+use num_traits::{One, ToPrimitive, Zero};
 use roxido::*;
 
 #[roxido]
@@ -15,26 +18,26 @@ fn make_gupd(prob: &RVector, n_items: usize) {
     if prob.iter().any(|&x| x.is_infinite()) {
         stop!("'prob' must have finite elements")
     }
-    let sum = prob.iter().sum::<f64>();
+    let sum: f64 = prob.iter().sum();
     for p in prob.iter_mut() {
         *p /= sum;
     }
-    let mut vec = vec![0; n_items + 1];
-    vec[0] = 1; // Base case: S(0,0) = 1
+    let mut vec = vec![BigUint::zero(); n_items + 1];
+    vec[0] = BigUint::one(); // Base case: S(0,0) = 1
     for i in 1..=n_items {
         for k in (1..=prob.len().min(i)).rev() {
-            // Iterate backwards to avoid overwriting
-            vec[k] = k * vec[k] + vec[k - 1]; // Recursive definition
+            vec[k] = BigUint::from(k) * &vec[k] + &vec[k - 1]; // Recursive definition
         }
-        vec[0] = 0; // Ensure S(n, 0) remains 0 for n > 0
+        vec[0] = BigUint::zero(); // Ensure S(n, 0) remains 0 for n > 0
     }
     let rval = RVector::from_value(0.0, prob.len(), pc);
     let slice = rval.slice_mut();
-    for (r, (v, p)) in slice
-        .iter_mut()
-        .zip(vec.iter_mut().skip(1).zip(prob.iter()))
-    {
-        *r = *p / (*v as f64);
+    for (r, (v, p)) in slice.iter_mut().zip(vec.iter().skip(1).zip(prob.iter())) {
+        if let Some(v_f64) = v.to_f64() {
+            *r = *p / v_f64;
+        } else {
+            stop!("Value too large to convert to f64.");
+        }
     }
     rval
 }
