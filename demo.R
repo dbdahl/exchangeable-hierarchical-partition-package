@@ -17,8 +17,8 @@ sum(p)
 
 
 lambda <- 10
-prob <- dpois(1:20, lambda)
-n_items <- 100000
+prob <- dpois(1:50, lambda)
+n_items <- 200000
 
 f <- make_gupd(prob, n_items, log = TRUE)
 f(1)
@@ -27,5 +27,6 @@ f(9)
 f(10)
 f(11)
 f(20)
-f(21)
+f(30)
+f(50)
 
