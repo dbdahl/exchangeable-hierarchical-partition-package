@@ -14,19 +14,15 @@ partitions <- salso::enumerate.partitions(n_items)
 p <- apply(partitions, 1, f)
 sum(p)
 
-
-
 lambda <- 10
 prob <- dpois(1:50, lambda)
-n_items <- 200000
+n_items <- 1000000
 
-f <- make_gupd(prob, n_items, log = TRUE)
-f(1)
-f(2)
-f(9)
-f(10)
-f(11)
-f(20)
-f(30)
-f(50)
+k <- c(2, 5, 20, 30, 50)
+
+system.time(f1 <- make_gupd(prob, n_items, log = TRUE))
+o1 <- sapply(k, f1)
+o1
+
+sessionInfo()
 

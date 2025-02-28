@@ -1,0 +1,84 @@
+
+R version 4.4.2 (2024-10-31) -- "Pile of Leaves"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(gupd)
+> 
+> lambda <- 3
+> prob <- dpois(1:5, lambda)
+> n_items <- 11
+> 
+> f <- make_gupd(prob, n_items, log = FALSE)
+> 
+> # Two ways to use the function.
+> f(c(1,1,1,1,1,1,2,2,2,3,3))
+[1] 9.074092e-06
+> f(3)
+[1] 9.074092e-06
+> 
+> partitions <- salso::enumerate.partitions(n_items)
+> p <- apply(partitions, 1, f)
+> sum(p)
+[1] 1
+> 
+> lambda <- 10
+> prob <- dpois(1:50, lambda)
+> n_items <- 1000000
+> 
+> k <- c(2, 5, 20, 30, 50)
+> 
+> system.time(f1 <- make_gupd(prob, n_items, log = TRUE))
+   user  system elapsed 
+  1.317   0.000   1.320 
+> o1 <- sapply(k, f1)
+> o1
+[1]  -693152.6 -1609436.4 -2995696.2 -3401138.3 -3911917.9
+> 
+> sessionInfo()
+R version 4.4.2 (2024-10-31)
+Platform: x86_64-pc-linux-gnu
+Running under: Fedora Linux 40 (Workstation Edition)
+
+Matrix products: default
+BLAS:   /home/dahl/.local/R/4.4.2-latest/lib64/R/lib/libRblas.so 
+LAPACK: /home/dahl/.local/R/4.4.2-latest/lib64/R/lib/libRlapack.so;  LAPACK version 3.12.0
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+ [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+time zone: America/Denver
+tzcode source: system (glibc)
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] gupd_0.1.2
+
+loaded via a namespace (and not attached):
+[1] compiler_4.4.2 salso_0.3.48  
+> 
+> 
+> proc.time()
+   user  system elapsed 
+  4.498   0.092   4.655 

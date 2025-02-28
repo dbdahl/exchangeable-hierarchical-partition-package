@@ -16,6 +16,5 @@ lto = "thin"
 
 [dependencies]
 roxido = { path="roxido" }
-rug = "1.27.0"
 # roxido_faer = { path="roxido_faer" }
 
