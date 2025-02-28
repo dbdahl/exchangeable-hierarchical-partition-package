@@ -1,12 +1,12 @@
 // The 'roxido_registration' macro is called at the start of the 'lib.rs' file.
 roxido_registration!();
 
-use ibig::{ops::Abs, IBig, UBig};
+use ibig::UBig; // Added import for ibig
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use num_traits::{One, Zero};
 use roxido::*;
-use rug::{Assign, Float}; // Added import for ibig
+use rug::{Assign, Float};
 
 #[roxido]
 fn make_gupd(prob: &RVector, n_items: usize, log: bool, method: &str) {
@@ -76,22 +76,33 @@ fn make_gupd(prob: &RVector, n_items: usize, log: bool, method: &str) {
             }
         }
         "ibig" => {
-            let mut vec = vec![IBig::from(0); n_items + 1];
-            vec[0] = IBig::from(1); // Base case: S(0,0) = 1
+            // Using a similar approach to the rug implementation for better accuracy
+            // Create a vector to store UBig values (using unsigned for slightly better performance)
+            let mut vec = vec![UBig::from(0u32); n_items + 1];
+            vec[0] = UBig::from(1u32); // Base case: S(0,0) = 1
+
+            // Fill the vector using the recurrence relation
             for i in 1..=n_items {
                 for k in (1..=prob.len().min(i)).rev() {
-                    vec[k] = &vec[k] * k + &vec[k - 1];
+                    // S(n,k) = k*S(n-1,k) + S(n-1,k-1)
+                    let k_ubig = UBig::from(k);
+                    let term1 = &vec[k] * &k_ubig;
+                    vec[k] = term1 + &vec[k - 1];
                 }
-                vec[0] = IBig::from(0); // Ensure S(n, 0) remains 0 for n > 0
+                vec[0] = UBig::from(0u32); // Ensure S(n, 0) remains 0 for n > 0
             }
+
+            // Compute the final result
             for (r, (v, p)) in slice.iter_mut().zip(vec.iter().skip(1).zip(prob.iter())) {
-                if *v == IBig::from(0) {
+                if *v == UBig::from(0u32) {
                     stop!("Encountered zero in logarithm calculation.");
                 } else {
                     *r = if log {
-                        p.ln() - ibig_ln_precise(v)
+                        // For log calculation, use high-precision approach
+                        p.ln() - ln_ubig_precise(v)
                     } else {
-                        p / ibig_to_f64(v)
+                        // For direct calculation
+                        p / ubig_to_f64(v)
                     }
                 }
             }
@@ -101,48 +112,48 @@ fn make_gupd(prob: &RVector, n_items: usize, log: bool, method: &str) {
     rval
 }
 
-// Helper function to convert IBig to f64
-fn ibig_to_f64(value: &IBig) -> f64 {
-    // Try to convert to i64 first for small numbers
-    if let Ok(i) = i64::try_from(value) {
-        return i as f64;
+// Helper function to convert UBig to f64 with high precision
+fn ubig_to_f64(value: &UBig) -> f64 {
+    // For small numbers, try to convert via u64
+    if let Ok(small_val) = u64::try_from(value) {
+        return small_val as f64;
     }
 
-    // For large numbers, use the string representation
+    // For larger numbers, convert via string
     let s = value.to_string();
-    let sign = if s.starts_with('-') { -1.0 } else { 1.0 };
 
-    // For very large numbers, approximate
-    if s.len() > 18 {
-        let digits = s.trim_start_matches('-').len() as f64;
-        return sign * 10.0_f64.powf(digits - 1.0);
+    // If it's not too large, parse directly
+    if s.len() <= 17 {
+        return s.parse::<f64>().unwrap();
     }
 
-    // Otherwise parse the string
-    s.parse::<f64>().unwrap_or(f64::MAX * sign)
+    // For very large numbers, use scientific notation approach
+    let digits = s.len();
+    let leading_part = &s[0..std::cmp::min(16, s.len())];
+    let leading_val: f64 = leading_part.parse().unwrap();
+
+    // Compute as: leading_digits * 10^(remaining_digits)
+    leading_val * 10f64.powf((digits - leading_part.len()) as f64)
 }
 
-// Helper function to calculate natural logarithm of IBig with precision
-fn ibig_ln_precise(value: &IBig) -> f64 {
-    // Natural log approximation for large integers
-    let s = value.abs().to_string();
-    let length = s.len() as f64;
+// Helper function to calculate natural logarithm of UBig with high precision
+fn ln_ubig_precise(value: &UBig) -> f64 {
+    let s = value.to_string();
 
-    if length <= 15.0 {
-        // For smaller numbers that fit in f64
-        return ibig_to_f64(value).ln();
+    // For small numbers, convert directly
+    if s.len() <= 16 {
+        return ubig_to_f64(value).ln();
     }
 
-    // For large integers: ln(n) ≈ ln(10) * (number of digits - 1) + ln(leading digits)
-    let leading_digits = s
-        .chars()
-        .take(15)
-        .collect::<String>()
-        .parse::<f64>()
-        .unwrap();
-
+    // For large numbers, use ln(a * 10^b) = ln(a) + b * ln(10)
     let ln_10 = 2.302585092994046; // ln(10)
-    leading_digits.ln() + ln_10 * (length - 1.0)
+
+    // Get the most significant digits (as many as will fit in f64 without losing precision)
+    let significant_digits = &s[0..std::cmp::min(15, s.len())];
+    let significant_value: f64 = significant_digits.parse().unwrap();
+
+    // Calculate ln(significant_value) + (total_digits - significant_digits) * ln(10)
+    significant_value.ln() + ((s.len() - significant_digits.len()) as f64) * ln_10
 }
 
 // Function to calculate ln of BigInt with precision
