@@ -27,7 +27,7 @@ generate_size_configurations <- function(n, k, max_val=n) {
 }
 
 # Example usage
-n <- 60
+n <- 61
 k <- 10
 size_configurations <- generate_size_configurations(n, k)
 
@@ -35,9 +35,22 @@ size_configurations <- generate_size_configurations(n, k)
 print(size_configurations)
 length(size_configurations)
 
-size_configurations <- generate_size_configurations(1000, 3)
+entropies <- sapply(size_configurations, \(x) { p <- x/sum(x); -sum(p*log(p)) })
+plot(density(entropies))
+hist(entropies, br = 100)
+
+
+
+
+
+
+size_configurations <- generate_size_configurations(100, 5)
 print(size_configurations)
 length(size_configurations)
+
+entropies <- sapply(size_configurations, \(x) { p <- x/sum(x); -sum(p*log(p)) })
+plot(density(entropies))
+hist(entropies, br = 100)
 
 entropies <- sapply(size_configurations, \(x) { p <- x/sum(x); -sum(p*log(p)) })
 plot(density(entropies))
@@ -47,5 +60,3 @@ system.time(size_configurations <- generate_size_configurations(1000, 4))
 print(size_configurations)
 length(size_configurations)
 
-entropies <- sapply(size_configurations, \(x) { p <- x/sum(x); -sum(p*log(p)) })
-plot(density(entropies))
