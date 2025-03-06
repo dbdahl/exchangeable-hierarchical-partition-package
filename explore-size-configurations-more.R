@@ -49,6 +49,26 @@ rconfiguration <- function(n, k, alpha, beta) {
   configuration
 }
 
+rpartition <- function(configuration) {
+  n <- sum(configuration)
+  permutation <- sample(seq_len(n))
+  result <- list()
+  for (i in seq_along(configuration)) {
+    w <- seq_len(configuration[i])
+    result[[i]] <- permutation[w]
+    permutation <- permutation[-w]
+  }
+  label <- order(sapply(result, \(x) min(x)))
+  partition <- integer(n)
+  for (i in seq_along(label)) {
+    partition[result[[label[i]]]] <- i
+  }
+  partition
+}
+
+result <- rpartition(c(14,3,2,1))
+result
+
 rconfiguration(18, 5, 0.01, 1)
 rconfiguration(18, 5, 1, 0.5)
 rconfiguration(18, 5, 1, 0.01)

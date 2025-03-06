@@ -62,3 +62,31 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
         m + ((a - m).exp() + (b - m).exp()).ln()
     }
 }
+
+use rand::distr::weighted::WeightedIndex;
+use rand::prelude::*;
+
+#[roxido]
+fn experiment(n_items: usize, n_clusters: usize, n_samples: usize, concentration: f64) {
+    let result = RMatrix::from_value(0, n_clusters, n_samples, pc);
+    let slice = result.slice_mut();
+    let mut rng = rand::rng();
+    let mut counts = vec![0_i32; n_clusters];
+    for i in 0..n_samples {
+        counts.fill(1);
+        let mut r = n_items - n_clusters;
+        while r > 0 {
+            let weights: Vec<_> = counts
+                .iter()
+                .map(|&x| (x as f64).powf(concentration))
+                .collect();
+            let dist = WeightedIndex::new(&weights).unwrap();
+            let index = dist.sample(&mut rng);
+            counts[index] += 1;
+            r -= 1;
+        }
+        counts.sort();
+        slice[i * n_clusters..(i + 1) * n_clusters].copy_from_slice(&counts);
+    }
+    result
+}
