@@ -1,8 +1,10 @@
-entropy <- function(configuration) {
-  configuration <- configuration + rep(1, length(configuration))
-  p <- configuration / sum(configuration)
-  -sum(p * log(p))
-}
+library(gupd)
+
+entropy(c(1, 1, 1, 1, 2, 2, 2, 3, 3, 3))
+all.equal(entropy(1:10), log(10))
+all.equal(entropy(rep(1, 10)), 0.0)
+
+
 
 rbetabinom <- function(n, size, alpha, beta) {
   p <- rbeta(n, alpha, beta)

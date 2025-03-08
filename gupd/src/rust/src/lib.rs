@@ -1,6 +1,7 @@
 // The 'roxido_registration' macro is called at the start of the 'lib.rs' file.
 roxido_registration!();
 
+use ahash::AHashMap;
 use roxido::*;
 use std::f64;
 
@@ -89,4 +90,32 @@ fn experiment(n_items: usize, n_clusters: usize, n_samples: usize, concentration
         slice[i * n_clusters..(i + 1) * n_clusters].copy_from_slice(&counts);
     }
     result
+}
+
+#[roxido]
+fn entropy(partition: &RVector) {
+    let partition = partition.to_i32(pc);
+    let slice = partition.slice();
+    let n_items = slice.len() as f64;
+    let mut counts = AHashMap::new();
+    for &num in slice {
+        *counts.entry(num).or_insert(0) += 1;
+    }
+    counts.values().fold(0.0, |s, &x| {
+        let p = (x as f64) / n_items;
+        s - p * p.ln()
+    })
+}
+
+fn max_entropy_configuration(n_items: usize, n_clusters: usize) -> Option<Vec<usize>> {
+    if n_clusters > n_items {
+        return None;
+    }
+    let min_size = n_items / n_clusters;
+    let mut x = vec![min_size; n_clusters];
+    let remainder = n_items % n_clusters;
+    for y in x[0..remainder].iter_mut() {
+        *y += 1;
+    }
+    Some(x)
 }

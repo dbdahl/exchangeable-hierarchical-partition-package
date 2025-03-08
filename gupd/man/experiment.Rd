@@ -4,7 +4,7 @@
 \alias{experiment}
 \title{Generalized Uniform Partition Distribution}
 \usage{
-experiment(n_items, n_clusters, n_samples, concentration, discount)
+experiment(n_items, n_clusters, n_samples, concentration)
 }
 \arguments{
 \item{n_items}{An integer for the number of items in the partition.}
