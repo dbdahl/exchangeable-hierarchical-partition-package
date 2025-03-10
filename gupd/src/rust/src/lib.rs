@@ -107,15 +107,126 @@ fn entropy(partition: &RVector) {
     })
 }
 
-fn max_entropy_configuration(n_items: usize, n_clusters: usize) -> Option<Vec<usize>> {
-    if n_clusters > n_items {
-        return None;
+#[roxido]
+fn initial_state_r(n_items: usize, n_clusters: usize) {
+    let r1 = SizeConfiguration::new_max_entropy(n_items, n_clusters);
+    let r2: Vec<_> = r1
+        .stop()
+        .x
+        .iter()
+        .map(|&x| i32::try_from(x).unwrap())
+        .collect();
+    r2
+}
+
+#[roxido]
+fn new_from_vec(x: &RVector) {
+    let x = x.to_i32(pc);
+    let y = x
+        .slice()
+        .iter()
+        .map(|&yy| usize::try_from(yy - 1).stop_str("Cluster sizes must be at least one"))
+        .collect();
+    let z = SizeConfiguration::new_from_vec(y).stop();
+    RExternalPtr::encode(z, "SizeConfiguration", pc)
+}
+
+#[roxido]
+fn new_max_entropy(n_items: usize, n_clusters: usize) {
+    let y = SizeConfiguration::new_max_entropy(n_items, n_clusters).stop();
+    RExternalPtr::encode(y, "SizeConfiguration", pc)
+}
+
+#[roxido]
+fn size_configuration_to_r(x: &RExternalPtr) {
+    let r1 = x.decode_ref::<SizeConfiguration>();
+    let r2: Vec<_> = r1.x.iter().map(|&x| i32::try_from(x).unwrap()).collect();
+    r2
+}
+
+#[roxido]
+fn size_configuration_available(x: &RExternalPtr, index: usize) {
+    let x = x.decode_ref::<SizeConfiguration>();
+    i32::try_from(x.available(index - 1)).stop()
+}
+
+#[roxido]
+fn size_configuration_redistribute(x: &mut RExternalPtr, index: usize, n: usize) {
+    let x = x.decode_mut::<SizeConfiguration>();
+    x.redistribute(index - 1, n)
+}
+
+#[derive(Debug)]
+struct SizeConfiguration {
+    x: Vec<usize>,
+}
+
+impl SizeConfiguration {
+    fn new_from_vec(mut x: Vec<usize>) -> Result<Self, &'static str> {
+        x.sort_unstable_by(|a, b| b.cmp(a));
+        Ok(Self { x })
     }
-    let min_size = n_items / n_clusters;
-    let mut x = vec![min_size; n_clusters];
-    let remainder = n_items % n_clusters;
-    for y in x[0..remainder].iter_mut() {
-        *y += 1;
+
+    fn new_max_entropy(n_items: usize, n_clusters: usize) -> Result<Self, &'static str> {
+        if n_clusters > n_items {
+            return Err("'n_items' must be greater than 'n_clusters'");
+        }
+        if n_clusters == 0 {
+            return Err("'n_clusters' must be greater than 0");
+        }
+        let min_size = n_items / n_clusters - 1;
+        let mut x = vec![min_size; n_clusters];
+        let remainder = n_items % n_clusters;
+        for y in x[0..remainder].iter_mut() {
+            *y += 1;
+        }
+        Ok(Self { x })
     }
-    Some(x)
+
+    fn available(&self, index: usize) -> usize {
+        match index {
+            0 => 0,
+            i if i >= self.x.len() => 0,
+            i if i == self.x.len() - 1 => self.x[i],
+            i => self.x[i] - self.x[i + 1],
+        }
+    }
+
+    fn redistribute(&mut self, index: usize, mut n: usize) -> bool {
+        if n == 0 {
+            return true;
+        }
+        if index == 0 {
+            return false;
+        }
+        if n > self.available(index) {
+            return false;
+        }
+        self.x[index] -= n;
+        let v0 = self.x[0];
+        let mut i = index - 1;
+        while self.x[i] != v0 {
+            i -= 1;
+        }
+        i += 1;
+        while i < index && n > 0 {
+            self.x[i] += 1;
+            i += 1;
+            n -= 1;
+        }
+        if n == 0 {
+            return true;
+        }
+        let whole = n / index;
+        if whole > 0 {
+            for j in 0..index {
+                self.x[j] += whole;
+            }
+            n -= index * whole;
+        }
+        for j in 0..n {
+            self.x[j] += 1;
+        }
+        true
+    }
 }
