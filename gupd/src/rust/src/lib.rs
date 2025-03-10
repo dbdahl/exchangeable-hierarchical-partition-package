@@ -2,11 +2,13 @@
 roxido_registration!();
 
 use ahash::AHashMap;
+use rand_distr::{Beta, BetaError, Binomial};
 use roxido::*;
 use std::f64;
 
 #[roxido]
-fn make_gupd(prob: &RVector, n_items: usize) {
+fn make_gupd(prob: &RVector, n_items: i32) {
+    let n_items = usize::try_from(n_items).stop();
     if n_items < prob.len() {
         stop!("'n_items' should be at least the length of 'prob'.")
     }
@@ -81,7 +83,7 @@ fn experiment(n_items: usize, n_clusters: usize, n_samples: usize, concentration
                 .iter()
                 .map(|&x| (x as f64).powf(concentration))
                 .collect();
-            let dist = WeightedIndex::new(&weights).unwrap();
+            let dist = WeightedIndex::new(&weights).stop();
             let index = dist.sample(&mut rng);
             counts[index] += 1;
             r -= 1;
@@ -108,13 +110,16 @@ fn entropy(partition: &RVector) {
 }
 
 #[roxido]
-fn initial_state_r(n_items: usize, n_clusters: usize) {
-    let r1 = SizeConfiguration::new_max_entropy(n_items, n_clusters);
+fn initial_state_r(n_items: i32, n_clusters: i32) {
+    let r1 = SizeConfiguration::new_max_entropy(
+        u64::try_from(n_items).stop(),
+        u64::try_from(n_clusters).stop(),
+    );
     let r2: Vec<_> = r1
         .stop()
         .x
         .iter()
-        .map(|&x| i32::try_from(x).unwrap())
+        .map(|&x| i32::try_from(x).stop())
         .collect();
     r2
 }
@@ -125,49 +130,76 @@ fn new_from_vec(x: &RVector) {
     let y = x
         .slice()
         .iter()
-        .map(|&yy| usize::try_from(yy - 1).stop_str("Cluster sizes must be at least one"))
+        .map(|&yy| u64::try_from(yy - 1).stop_str("Cluster sizes must be at least one"))
         .collect();
     let z = SizeConfiguration::new_from_vec(y).stop();
     RExternalPtr::encode(z, "SizeConfiguration", pc)
 }
 
 #[roxido]
-fn new_max_entropy(n_items: usize, n_clusters: usize) {
-    let y = SizeConfiguration::new_max_entropy(n_items, n_clusters).stop();
+fn new_max_entropy(n_items: i32, n_clusters: i32) {
+    let y = SizeConfiguration::new_max_entropy(
+        u64::try_from(n_items).stop(),
+        u64::try_from(n_clusters).stop(),
+    )
+    .stop();
     RExternalPtr::encode(y, "SizeConfiguration", pc)
 }
 
 #[roxido]
 fn size_configuration_to_r(x: &RExternalPtr) {
     let r1 = x.decode_ref::<SizeConfiguration>();
-    let r2: Vec<_> = r1.x.iter().map(|&x| i32::try_from(x).unwrap()).collect();
+    let r2: Vec<_> = r1.x.iter().map(|&x| i32::try_from(x).stop()).collect();
     r2
 }
 
 #[roxido]
-fn size_configuration_available(x: &RExternalPtr, index: usize) {
+fn size_configuration_available(x: &RExternalPtr, index: i32) {
     let x = x.decode_ref::<SizeConfiguration>();
-    i32::try_from(x.available(index - 1)).stop()
+    i32::try_from(x.available(usize::try_from(index - 1).stop()).n).stop()
 }
 
 #[roxido]
-fn size_configuration_redistribute(x: &mut RExternalPtr, index: usize, n: usize) {
+fn size_configuration_redistribute(x: &mut RExternalPtr, index: i32, n: i32) {
     let x = x.decode_mut::<SizeConfiguration>();
-    x.redistribute(index - 1, n)
+    x.redistribute(
+        usize::try_from(index - 1).stop(),
+        Available {
+            n: u64::try_from(n).stop(),
+        },
+    )
 }
 
 #[derive(Debug)]
-struct SizeConfiguration {
-    x: Vec<usize>,
+pub struct Available {
+    n: u64,
+}
+
+#[derive(Debug)]
+pub struct SizeConfiguration {
+    x: Vec<u64>,
+}
+
+fn sample_beta_binomial<R: Rng + ?Sized>(
+    n_items: u64,
+    alpha: f64,
+    beta: f64,
+    rng: &mut R,
+) -> Result<u64, BetaError> {
+    let beta_dist = Beta::new(alpha, beta)?;
+    let p: f64 = beta_dist.sample(rng);
+    let binomial_dist =
+        Binomial::new(n_items, p).expect("Beta distribution provided an invalid probability");
+    Ok(binomial_dist.sample(rng))
 }
 
 impl SizeConfiguration {
-    fn new_from_vec(mut x: Vec<usize>) -> Result<Self, &'static str> {
+    fn new_from_vec(mut x: Vec<u64>) -> Result<Self, &'static str> {
         x.sort_unstable_by(|a, b| b.cmp(a));
         Ok(Self { x })
     }
 
-    fn new_max_entropy(n_items: usize, n_clusters: usize) -> Result<Self, &'static str> {
+    fn new_max_entropy(n_items: u64, n_clusters: u64) -> Result<Self, &'static str> {
         if n_clusters > n_items {
             return Err("'n_items' must be greater than 'n_clusters'");
         }
@@ -175,56 +207,55 @@ impl SizeConfiguration {
             return Err("'n_clusters' must be greater than 0");
         }
         let min_size = n_items / n_clusters - 1;
-        let mut x = vec![min_size; n_clusters];
+        let mut x = vec![min_size; usize::try_from(n_clusters).expect("u64 doesn't fit in usize")];
         let remainder = n_items % n_clusters;
-        for y in x[0..remainder].iter_mut() {
+        for y in x[0..usize::try_from(remainder).expect("u64 doesn't fit in usize")].iter_mut() {
             *y += 1;
         }
         Ok(Self { x })
     }
 
-    fn available(&self, index: usize) -> usize {
-        match index {
-            0 => 0,
-            i if i >= self.x.len() => 0,
-            i if i == self.x.len() - 1 => self.x[i],
-            i => self.x[i] - self.x[i + 1],
+    fn available(&self, index: usize) -> Available {
+        Available {
+            n: match index {
+                0 => 0,
+                i if i >= self.x.len() => 0,
+                i if i == self.x.len() - 1 => self.x[i],
+                i => self.x[i] - self.x[i + 1],
+            },
         }
     }
 
-    fn redistribute(&mut self, index: usize, mut n: usize) -> bool {
-        if n == 0 {
+    fn redistribute(&mut self, index: usize, mut n: Available) -> bool {
+        if n.n == 0 {
             return true;
         }
         if index == 0 {
             return false;
         }
-        if n > self.available(index) {
-            return false;
-        }
-        self.x[index] -= n;
+        self.x[index] -= n.n;
         let v0 = self.x[0];
         let mut i = index - 1;
         while self.x[i] != v0 {
             i -= 1;
         }
         i += 1;
-        while i < index && n > 0 {
+        while i < index && n.n > 0 {
             self.x[i] += 1;
             i += 1;
-            n -= 1;
+            n.n -= 1;
         }
-        if n == 0 {
+        if n.n == 0 {
             return true;
         }
-        let whole = n / index;
+        let whole = n.n / u64::try_from(index).expect("usize doesn't fit in u64");
         if whole > 0 {
             for j in 0..index {
                 self.x[j] += whole;
             }
-            n -= index * whole;
+            n.n -= u64::try_from(index).expect("usize doesn't fit in u64") * whole;
         }
-        for j in 0..n {
+        for j in 0..usize::try_from(n.n).expect("u64 doesn't fit in usize") {
             self.x[j] += 1;
         }
         true

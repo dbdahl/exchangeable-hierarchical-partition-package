@@ -30,7 +30,6 @@ rconfiguration <- function(n, k, alpha, beta) {
   while (index > 1) {
     max_available <- size_configuration_available(new_from_vec(configuration+1), index)
     n_move <- rbetabinom(1, max_available, alpha, beta)
-    # configuration <- redistribute(configuration, index, n_move)
     ptr <- new_from_vec(configuration + 1)
     size_configuration_redistribute(ptr, index, n_move)
     configuration <- size_configuration_to_r(ptr)

@@ -17,6 +17,7 @@ lto = "thin"
 [dependencies]
 ahash = "0.8.11"
 rand = "0.9.0"
+rand_distr = "0.5.1"
 roxido = { path="roxido" }
 # roxido_faer = { path="roxido_faer" }
 
