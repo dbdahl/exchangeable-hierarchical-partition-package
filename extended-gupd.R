@@ -24,6 +24,11 @@ rsizes(n_items, n_clusters, 0.5, 1)
 rsizes(n_items, n_clusters, 1, 0.5)
 rsizes(n_items, n_clusters, 1, 0.01)
 
+y <- rsizes(n_items, n_clusters, 0.5, 1)
+dsizes(y, 0.5, 1, log = TRUE)
+
+
+
 rpartition <- function(configuration) {
   n <- sum(configuration)
   permutation <- sample(seq_len(n))

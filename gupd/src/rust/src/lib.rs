@@ -6,6 +6,7 @@ use rand::{Rng, SeedableRng};
 use rand_distr::{Beta, BetaError, Binomial};
 use rand_pcg::Pcg64Mcg;
 use roxido::*;
+use statrs::function::gamma::ln_gamma;
 use std::f64;
 
 #[roxido]
@@ -130,6 +131,29 @@ fn rsizes(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
     result
 }
 
+#[roxido]
+fn dsizes(x: &RVector, alpha: f64, beta: f64, log: bool) {
+    let mut y = Vec::with_capacity(x.len());
+    if let Ok(x) = x.as_f64() {
+        for z in x.slice() {
+            y.push(*z as u64);
+        }
+    } else if let Ok(x) = x.as_i32() {
+        for z in x.slice() {
+            y.push(u64::try_from(*z).stop());
+        }
+    } else {
+        stop!("Unsupported vector type");
+    }
+    let sc = SizeConfiguration::new_from_vec(y).stop();
+    let lp = sc.log_probability(alpha, beta);
+    if log {
+        lp
+    } else {
+        lp.exp()
+    }
+}
+
 #[derive(Debug)]
 pub struct SizeConfiguration {
     x: Vec<u64>,
@@ -146,6 +170,22 @@ fn sample_beta_binomial<R: Rng + ?Sized>(
     let binomial_dist =
         Binomial::new(n_items, p).expect("Beta distribution provided an invalid probability");
     Ok(binomial_dist.sample(rng))
+}
+
+pub fn log_pmf_beta_binomial(x: u64, n_items: u64, alpha: f64, beta: f64) -> f64 {
+    if x > n_items {
+        return f64::NEG_INFINITY;
+    }
+    let n = n_items as f64;
+    let x_f = x as f64;
+    // Compute log of the binomial coefficient: ln(n choose x)
+    let log_comb = ln_gamma(n + 1.0) - ln_gamma(x_f + 1.0) - ln_gamma(n - x_f + 1.0);
+    // Compute log beta function for numerator: ln(B(alpha + x, beta + n - x))
+    let log_beta_num =
+        ln_gamma(alpha + x_f) + ln_gamma(beta + (n - x_f)) - ln_gamma(alpha + beta + n);
+    // Compute log beta function for denominator: ln(B(alpha, beta))
+    let log_beta_den = ln_gamma(alpha) + ln_gamma(beta) - ln_gamma(alpha + beta);
+    log_comb + log_beta_num - log_beta_den
 }
 
 impl SizeConfiguration {
@@ -184,16 +224,34 @@ impl SizeConfiguration {
         beta: f64,
         rng: &mut R,
     ) -> Result<Self, &'static str> {
-        let mut sg = Self::new_max_entropy(n_items, n_clusters)?;
-        let mut index = sg.x.len() - 1;
+        let mut sc = Self::new_max_entropy(n_items, n_clusters)?;
+        let mut index = sc.x.len() - 1;
         while index > 0 {
-            let available = sg.available(index);
+            let available = sc.available(index);
             let n = sample_beta_binomial(available, alpha, beta, rng)
                 .map_err(|_| "Invalid beta parameter")?;
-            sg.redistribute(index, n);
+            sc.redistribute(index, n);
             index -= 1;
         }
-        Ok(sg)
+        Ok(sc)
+    }
+
+    fn log_probability(&self, alpha: f64, beta: f64) -> f64 {
+        let n_clusters = u64::try_from(self.x.len()).expect("usize doesn't fit in u64");
+        let n_items = u64::try_from(self.x.iter().sum::<u64>()).expect("usize doesn't fit in u64")
+            + n_clusters;
+        let mut sc = Self::new_max_entropy(n_items, n_clusters).unwrap();
+        let mut result = 0.0;
+        let mut index = sc.x.len() - 1;
+        while index > 0 {
+            let available = sc.available(index);
+            let n = sc.x[index] - self.x[index];
+            result += log_pmf_beta_binomial(n, available, alpha, beta);
+            sc.redistribute(index, n);
+            index -= 1;
+        }
+        assert!(sc.x == self.x);
+        result
     }
 
     fn available(&self, index: usize) -> u64 {
