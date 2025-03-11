@@ -4,10 +4,25 @@ entropy(c(1, 1, 1, 1, 2, 2, 2, 3, 3, 3))
 all.equal(entropy(1:10), log(10))
 all.equal(entropy(rep(1, 10)), 0.0)
 
-rsizes(10000, 5, 0.01, 1)
-rsizes(10000, 5, 0.5, 1)
-rsizes(10000, 5, 1, 0.5)
-rsizes(10000, 5, 1, 0.01)
+# Sample from the extended gupd
+
+n_items <- 1000
+
+rk <- function(lambda, max_n_clusters) {
+  n_clusters <- Inf
+  while (n_clusters > max_n_clusters) {
+    n_clusters <- rpois(1, lambda)
+  }
+  n_clusters
+}
+
+n_clusters <- rk(10, 15)
+n_clusters
+
+rsizes(n_items, n_clusters, 0.01, 1)
+rsizes(n_items, n_clusters, 0.5, 1)
+rsizes(n_items, n_clusters, 1, 0.5)
+rsizes(n_items, n_clusters, 1, 0.01)
 
 rpartition <- function(configuration) {
   n <- sum(configuration)
@@ -28,7 +43,6 @@ rpartition <- function(configuration) {
 
 rpartition(c(14,3,2,1))
 
-rev(sort(table(rpartition(rgup(100, 5, 0.1, 1)))))
-rev(sort(table(rpartition(rgup(100, 5, 1, 0.1)))))
-
+rev(sort(table(rpartition(rsizes(n_items, n_clusters, 0.1, 1)))))
+rev(sort(table(rpartition(rsizes(n_items, n_clusters, 1, 0.1)))))
 
