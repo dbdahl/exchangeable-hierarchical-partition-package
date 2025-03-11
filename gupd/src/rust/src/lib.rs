@@ -2,7 +2,9 @@
 roxido_registration!();
 
 use ahash::AHashMap;
+use rand::{Rng, SeedableRng};
 use rand_distr::{Beta, BetaError, Binomial};
+use rand_pcg::Pcg64Mcg;
 use roxido::*;
 use std::f64;
 
@@ -110,69 +112,22 @@ fn entropy(partition: &RVector) {
 }
 
 #[roxido]
-fn initial_state_r(n_items: i32, n_clusters: i32) {
-    let r1 = SizeConfiguration::new_max_entropy(
+fn rgup(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let sc = SizeConfiguration::sample(
         u64::try_from(n_items).stop(),
         u64::try_from(n_clusters).stop(),
-    );
-    let r2: Vec<_> = r1
-        .stop()
-        .x
-        .iter()
-        .map(|&x| i32::try_from(x).stop())
-        .collect();
-    r2
-}
-
-#[roxido]
-fn new_from_vec(x: &RVector) {
-    let x = x.to_i32(pc);
-    let y = x
-        .slice()
-        .iter()
-        .map(|&yy| u64::try_from(yy - 1).stop_str("Cluster sizes must be at least one"))
-        .collect();
-    let z = SizeConfiguration::new_from_vec(y).stop();
-    RExternalPtr::encode(z, "SizeConfiguration", pc)
-}
-
-#[roxido]
-fn new_max_entropy(n_items: i32, n_clusters: i32) {
-    let y = SizeConfiguration::new_max_entropy(
-        u64::try_from(n_items).stop(),
-        u64::try_from(n_clusters).stop(),
+        alpha,
+        beta,
+        &mut rng,
     )
     .stop();
-    RExternalPtr::encode(y, "SizeConfiguration", pc)
-}
-
-#[roxido]
-fn size_configuration_to_r(x: &RExternalPtr) {
-    let r1 = x.decode_ref::<SizeConfiguration>();
-    let r2: Vec<_> = r1.x.iter().map(|&x| i32::try_from(x).stop()).collect();
-    r2
-}
-
-#[roxido]
-fn size_configuration_available(x: &RExternalPtr, index: i32) {
-    let x = x.decode_ref::<SizeConfiguration>();
-    i32::try_from(x.available(usize::try_from(index - 1).stop()).n).stop()
-}
-
-#[roxido]
-fn size_configuration_redistribute(x: &mut RExternalPtr, index: i32, n: i32) {
-    let x = x.decode_mut::<SizeConfiguration>();
-    x.redistribute(
-        usize::try_from(index - 1).stop(),
-        Available {
-            n: u64::try_from(n).stop(),
-        },
-    )
-}
-
-#[derive(Debug)]
-pub struct Available {
-    n: u64,
+    let result = RVector::<i32>::new(usize::try_from(n_clusters).stop(), pc);
+    let slice = result.slice_mut();
+    for (x, y) in slice.iter_mut().zip(sc.x.iter()) {
+        *x = i32::try_from(*y + 1).stop()
+    }
+    result
 }
 
 #[derive(Debug)]
@@ -194,12 +149,19 @@ fn sample_beta_binomial<R: Rng + ?Sized>(
 }
 
 impl SizeConfiguration {
-    fn new_from_vec(mut x: Vec<u64>) -> Result<Self, &'static str> {
+    pub fn new_from_vec(mut x: Vec<u64>) -> Result<Self, &'static str> {
         x.sort_unstable_by(|a, b| b.cmp(a));
-        Ok(Self { x })
+        if x[x.len() - 1] == 0 {
+            Err("All clusters must have at least one element")
+        } else {
+            for y in x.iter_mut() {
+                *y -= 1;
+            }
+            Ok(Self { x })
+        }
     }
 
-    fn new_max_entropy(n_items: u64, n_clusters: u64) -> Result<Self, &'static str> {
+    pub fn new_max_entropy(n_items: u64, n_clusters: u64) -> Result<Self, &'static str> {
         if n_clusters > n_items {
             return Err("'n_items' must be greater than 'n_clusters'");
         }
@@ -215,47 +177,64 @@ impl SizeConfiguration {
         Ok(Self { x })
     }
 
-    fn available(&self, index: usize) -> Available {
-        Available {
-            n: match index {
-                0 => 0,
-                i if i >= self.x.len() => 0,
-                i if i == self.x.len() - 1 => self.x[i],
-                i => self.x[i] - self.x[i + 1],
-            },
+    pub fn sample<R: Rng + ?Sized>(
+        n_items: u64,
+        n_clusters: u64,
+        alpha: f64,
+        beta: f64,
+        rng: &mut R,
+    ) -> Result<Self, &'static str> {
+        let mut sg = Self::new_max_entropy(n_items, n_clusters)?;
+        let mut index = sg.x.len() - 1;
+        while index > 0 {
+            let available = sg.available(index);
+            let n = sample_beta_binomial(available, alpha, beta, rng)
+                .map_err(|_| "Invalid beta parameter")?;
+            sg.redistribute(index, n);
+            index -= 1;
+        }
+        Ok(sg)
+    }
+
+    fn available(&self, index: usize) -> u64 {
+        match index {
+            0 => 0,
+            i if i >= self.x.len() => 0,
+            i if i == self.x.len() - 1 => self.x[i],
+            i => self.x[i] - self.x[i + 1],
         }
     }
 
-    fn redistribute(&mut self, index: usize, mut n: Available) -> bool {
-        if n.n == 0 {
+    fn redistribute(&mut self, index: usize, mut n: u64) -> bool {
+        if n == 0 {
             return true;
         }
         if index == 0 {
             return false;
         }
-        self.x[index] -= n.n;
+        self.x[index] -= n;
         let v0 = self.x[0];
         let mut i = index - 1;
         while self.x[i] != v0 {
             i -= 1;
         }
         i += 1;
-        while i < index && n.n > 0 {
+        while i < index && n > 0 {
             self.x[i] += 1;
             i += 1;
-            n.n -= 1;
+            n -= 1;
         }
-        if n.n == 0 {
+        if n == 0 {
             return true;
         }
-        let whole = n.n / u64::try_from(index).expect("usize doesn't fit in u64");
+        let whole = n / u64::try_from(index).expect("usize doesn't fit in u64");
         if whole > 0 {
             for j in 0..index {
                 self.x[j] += whole;
             }
-            n.n -= u64::try_from(index).expect("usize doesn't fit in u64") * whole;
+            n -= u64::try_from(index).expect("usize doesn't fit in u64") * whole;
         }
-        for j in 0..usize::try_from(n.n).expect("u64 doesn't fit in usize") {
+        for j in 0..usize::try_from(n).expect("u64 doesn't fit in usize") {
             self.x[j] += 1;
         }
         true

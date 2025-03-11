@@ -18,6 +18,8 @@ lto = "thin"
 ahash = "0.8.11"
 rand = "0.9.0"
 rand_distr = "0.5.1"
+rand_pcg = "0.9.0"
 roxido = { path="roxido" }
+use = "0.0.1-pre.0"
 # roxido_faer = { path="roxido_faer" }
 
