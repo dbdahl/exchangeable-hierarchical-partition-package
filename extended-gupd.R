@@ -24,6 +24,11 @@ rsizes(n_items, n_clusters, 0.5, 1)
 rsizes(n_items, n_clusters, 1, 0.5)
 rsizes(n_items, n_clusters, 1, 0.01)
 
+x <- sapply(seq_len(1000000), \(x) {
+  rsizes(n_items, n_clusters, 0.01, 1)
+})
+mean(apply(x, 2, \(y) identical(y, c(rep(91L,10L),90L))))
+
 y <- rsizes(n_items, n_clusters, 0.5, 1)
 dsizes(y, 0.5, 1, log = TRUE)
 
@@ -46,7 +51,7 @@ rpartition <- function(configuration) {
   partition
 }
 
-rpartition(c(14,3,2,1))
+rpartition(c(14, 3, 2, 1))
 
 rev(sort(table(rpartition(rsizes(n_items, n_clusters, 0.1, 1)))))
 rev(sort(table(rpartition(rsizes(n_items, n_clusters, 1, 0.1)))))
