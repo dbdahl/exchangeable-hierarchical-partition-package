@@ -3,5 +3,5 @@
 export(entropy)
 export(experiment)
 export(make_gupd)
-export(rgup)
+export(rsizes)
 useDynLib(gupd, .registration = TRUE)

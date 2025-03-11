@@ -112,7 +112,7 @@ fn entropy(partition: &RVector) {
 }
 
 #[roxido]
-fn rgup(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
+fn rsizes(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
     let sc = SizeConfiguration::sample(
         u64::try_from(n_items).stop(),
