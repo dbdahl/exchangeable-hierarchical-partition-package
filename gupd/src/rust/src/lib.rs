@@ -115,7 +115,7 @@ fn entropy(partition: &RVector) {
 #[roxido]
 fn rsizes(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let sc = SizeConfiguration::sample(
+    let sc = SizeConfiguration::sample_size_configuration(
         u64::try_from(n_items).stop(),
         u64::try_from(n_clusters).stop(),
         alpha,
@@ -152,6 +152,26 @@ fn dsizes(x: &RVector, alpha: f64, beta: f64, log: bool) {
     } else {
         lp.exp()
     }
+}
+
+#[roxido]
+fn rpartition(n_items: i32, n_clusters: i32, alpha: f64, beta: f64) {
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let sc = SizeConfiguration::sample_size_configuration(
+        u64::try_from(n_items).stop(),
+        u64::try_from(n_clusters).stop(),
+        alpha,
+        beta,
+        &mut rng,
+    )
+    .stop();
+    let x = sc.sample_partition(&mut rng);
+    let result = RVector::<i32>::new(usize::try_from(n_items).stop(), pc);
+    let slice = result.slice_mut();
+    for (z, y) in slice.iter_mut().zip(x.iter()) {
+        *z = i32::try_from(*y + 1).stop()
+    }
+    result
 }
 
 #[derive(Debug)]
@@ -217,7 +237,7 @@ impl SizeConfiguration {
         Ok(Self { x })
     }
 
-    pub fn sample<R: Rng + ?Sized>(
+    pub fn sample_size_configuration<R: Rng + ?Sized>(
         n_items: u64,
         n_clusters: u64,
         alpha: f64,
@@ -234,6 +254,41 @@ impl SizeConfiguration {
             index -= 1;
         }
         Ok(sc)
+    }
+
+    pub fn sample_partition<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<u64> {
+        let n_clusters = self.x.len();
+        let n_items = usize::try_from(self.x.iter().sum::<u64>())
+            .expect("u64 doesn't fit in usize")
+            + n_clusters;
+        let mut permutation: Vec<_> = (0..n_items).collect();
+        permutation.shuffle(rng);
+        let mut label_map = Vec::with_capacity(n_clusters);
+        let mut i = 0;
+        for (counter, cluster_size) in self.x.iter().enumerate() {
+            let cluster_size =
+                usize::try_from(*cluster_size).expect("u64 doesn't fit in usize") + 1;
+            let min = permutation[i..(i + cluster_size)].iter().min().unwrap(); // Cluster size must be at least one.
+            i += cluster_size;
+            label_map.push((counter, *min));
+        }
+        label_map.sort_by(|x, y| x.1.cmp(&y.1));
+        for (i, x) in label_map.iter_mut().enumerate() {
+            x.1 = i;
+        }
+        label_map.sort_by(|x, y| x.0.cmp(&y.0));
+        let mut result = vec![0; n_items];
+        let mut i = 0;
+        for (cluster_size, label) in self.x.iter().zip(label_map.iter().map(|x| x.1)) {
+            let cluster_size =
+                usize::try_from(*cluster_size).expect("u64 doesn't fit in usize") + 1;
+            let label = u64::try_from(label).expect("usize doesn't fit in u64");
+            for index in permutation[i..(i + cluster_size)].iter() {
+                result[*index] = label;
+            }
+            i += cluster_size;
+        }
+        result
     }
 
     fn log_probability(&self, alpha: f64, beta: f64) -> f64 {

@@ -29,30 +29,9 @@ x <- sapply(seq_len(1000000), \(x) {
 })
 mean(apply(x, 2, \(y) identical(y, c(rep(91L,10L),90L))))
 
-y <- rsizes(n_items, n_clusters, 0.5, 1)
-dsizes(y, 0.5, 1, log = TRUE)
+y <- rsizes(n_items, n_clusters, 0.01, 1)
+dsizes(y, 0.01, 1, log = FALSE)
 
-
-
-rpartition <- function(configuration) {
-  n <- sum(configuration)
-  permutation <- sample(seq_len(n))
-  result <- list()
-  for (i in seq_along(configuration)) {
-    w <- seq_len(configuration[i])
-    result[[i]] <- permutation[w]
-    permutation <- permutation[-w]
-  }
-  label <- order(sapply(result, \(x) min(x)))
-  partition <- integer(n)
-  for (i in seq_along(label)) {
-    partition[result[[label[i]]]] <- i
-  }
-  partition
-}
-
-rpartition(c(14, 3, 2, 1))
-
-rev(sort(table(rpartition(rsizes(n_items, n_clusters, 0.1, 1)))))
-rev(sort(table(rpartition(rsizes(n_items, n_clusters, 1, 0.1)))))
+x <- rpartition(n_items, n_clusters, 1, 1)
+rev(sort(table(x)))
 

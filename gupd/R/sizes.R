@@ -8,5 +8,8 @@ dsizes <- function(x, alpha, beta, log = FALSE) {
   .Call(.dsizes, x, alpha, beta, log)
 }
 
-
+#' @export
+rpartition <- function(n_items, n_clusters, alpha, beta) {
+  .Call(.rpartition, n_items, n_clusters, alpha, beta)
+}
 
