@@ -309,6 +309,25 @@ impl SizeConfiguration {
         result
     }
 
+    fn log_partition_count_unordered(&self) -> f64 {
+        let n_items: u64 = self.x.iter().sum();
+        let log_n_fact = ln_gamma((n_items as f64) + 1.0);
+        let log_denom: f64 = self
+            .x
+            .iter()
+            .map(|&size| ln_gamma((size as f64) + 1.0))
+            .sum();
+        let mut freq: AHashMap<u64, u64> = AHashMap::new();
+        for &size in self.x.iter() {
+            *freq.entry(size).or_insert(0) += 1;
+        }
+        let log_mult: f64 = freq
+            .values()
+            .map(|&count| ln_gamma((count as f64) + 1.0))
+            .sum();
+        log_n_fact - log_denom - log_mult
+    }
+
     fn available(&self, index: usize) -> u64 {
         match index {
             0 => 0,
