@@ -17,7 +17,15 @@ struct GeneralizedHierarchicalUniformPartitionDistribution {
 }
 
 impl GeneralizedHierarchicalUniformPartitionDistribution {
-    fn new(n_items: usize, n_clusters_log_probability: &[f64], tilt: f64) -> Self {
+    fn new(
+        n_items: usize,
+        n_clusters_log_probability: &[f64],
+        tilt: f64,
+    ) -> Result<Self, &'static str> {
+        let max_n_clusters = n_clusters_log_probability.len();
+        if max_n_clusters == 0 {
+            return Err("There must be at least one cluster");
+        }
         let max_log = n_clusters_log_probability
             .iter()
             .cloned()
@@ -36,18 +44,19 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .map(|&x| x.exp())
             .collect::<Vec<_>>();
         // unwrap since n_clusters_probabilities are known to be okay.
-        let n_clusters_weighted_index = WeightedIndex::new(&n_clusters_probability).unwrap();
-        let max_n_clusters = n_clusters_log_probability.len();
+        let Ok(n_clusters_weighted_index) = WeightedIndex::new(&n_clusters_probability) else {
+            return Err("Invalid distribution for the number of clusters");
+        };
         let size_configurations_table =
             Self::precompute_size_configurations_table(n_items, max_n_clusters);
-        Self {
+        Ok(Self {
             n_items,
             max_n_clusters,
             n_clusters_log_probability,
             tilt,
             n_clusters_weighted_index,
             size_configurations_table,
-        }
+        })
     }
 
     fn precompute_size_configurations_table(
@@ -350,7 +359,8 @@ fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, tilt: f64) {
         n_items,
         n_clusters_log_weights.slice(),
         tilt,
-    );
+    )
+    .stop();
     RExternalPtr::encode(ghupd, "ghupd", pc)
 }
 

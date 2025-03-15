@@ -36,3 +36,14 @@ tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1, 1, 1, 1, 1)),
 
 tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1)), error = \(x) x)
 
+distr <- ghupd_new(10, log(c(1)), 0.0)
+tryCatch(ghupd_new(10, numeric(0), 0.0), error = \(x) x)
+tryCatch(ghupd_new(10, -Inf, 0.0), error = \(x) x)
+
+x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
+x / sum(x)  # Should match weights above?
+
+
+distr <- ghupd_new(1000000, rep(1, 100), 0.0)
+rev(sort(table(ghupd_sample_partition(distr))))
+
