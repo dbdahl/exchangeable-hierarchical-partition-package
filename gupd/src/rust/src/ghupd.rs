@@ -9,6 +9,7 @@ use rand_pcg::Pcg64Mcg;
 
 struct GeneralizedHierarchicalUniformPartitionDistribution {
     n_items: usize,
+    max_n_clusters: usize,
     n_clusters_log_probability: Vec<f64>,
     tilt: f64,
     n_clusters_weighted_index: WeightedIndex<f64>,
@@ -36,10 +37,12 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .collect::<Vec<_>>();
         // unwrap since n_clusters_probabilities are known to be okay.
         let n_clusters_weighted_index = WeightedIndex::new(&n_clusters_probability).unwrap();
+        let max_n_clusters = n_clusters_log_probability.len();
         let size_configurations_table =
-            Self::precompute_size_configurations_table(n_items, n_clusters_log_probability.len());
+            Self::precompute_size_configurations_table(n_items, max_n_clusters);
         Self {
             n_items,
+            max_n_clusters,
             n_clusters_log_probability,
             tilt,
             n_clusters_weighted_index,
@@ -98,7 +101,9 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     /// Sample a partition from the GHUP distribution.
     fn sample_partition<R: Rng>(&mut self, rng: &mut R) -> Vec<usize> {
         let n_clusters = self.sample_n_clusters(rng);
+        // unwrap is okay since n_clusters came from us.
         self.sample_partition_given_n_clusters(n_clusters, rng)
+            .unwrap()
     }
 
     /// Given a cluster size configuration, sample a partition from the GHUP distribution.
@@ -106,9 +111,12 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         &mut self,
         n_clusters: usize,
         rng: &mut R,
-    ) -> Vec<usize> {
-        let cluster_sizes = self.sample_cluster_sizes_given_n_clusters(n_clusters, rng);
-        self.sample_partition_given_cluster_sizes(&cluster_sizes, rng)
+    ) -> Result<Vec<usize>, &'static str> {
+        let cluster_sizes = self.sample_cluster_sizes_given_n_clusters(n_clusters, rng)?;
+        // unwrap is okay since cluster_sizes came from us.
+        Ok(self
+            .sample_partition_given_cluster_sizes(&cluster_sizes, rng)
+            .unwrap())
     }
 
     /// Given a cluster size configuration, sample a partition from the GHUP distribution.
@@ -116,10 +124,15 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         &self,
         cluster_sizes: &[usize],
         rng: &mut R,
-    ) -> Vec<usize> {
-        println!("Cluster sizes: {:?}", cluster_sizes);
+    ) -> Result<Vec<usize>, &'static str> {
         let n_clusters = cluster_sizes.len();
+        if n_clusters > self.max_n_clusters {
+            return Err("'cluster_sizes' implies more clusters than specified");
+        }
         let n_items = cluster_sizes.iter().sum::<usize>();
+        if n_items != self.n_items {
+            return Err("'cluster_sizes' implies the wrong number of items");
+        }
         let mut permutation: Vec<_> = (0..n_items).collect();
         permutation.shuffle(rng);
         let mut label_map = Vec::with_capacity(n_clusters);
@@ -143,7 +156,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             }
             i += cluster_size;
         }
-        result
+        Ok(result)
     }
 
     /// Sample a number of clusters from the GHUP distribution.
@@ -156,7 +169,10 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         &mut self,
         n_clusters: usize,
         rng: &mut R,
-    ) -> Vec<usize> {
+    ) -> Result<Vec<usize>, &'static str> {
+        if n_clusters > self.max_n_clusters {
+            return Err("'n_clusters' is out of bounds");
+        }
         let mut cluster_sizes = vec![0; n_clusters];
         let mut n_items = self.n_items;
         let mut min_size = 1;
@@ -169,7 +185,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             n_items -= min_size;
             cluster_sizes[k - 1] = min_size;
         }
-        cluster_sizes
+        Ok(cluster_sizes)
     }
 
     /// Log probability of a partition
@@ -350,7 +366,9 @@ fn ghupd_sample_partition(ghupd: &mut RExternalPtr) {
 fn ghupd_sample_partition_given_n_clusters(ghupd: &mut RExternalPtr, n_clusters: usize) {
     let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = ghupd.sample_partition_given_n_clusters(n_clusters, &mut rng);
+    let partition = ghupd
+        .sample_partition_given_n_clusters(n_clusters, &mut rng)
+        .stop();
     partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
 }
 
@@ -364,7 +382,9 @@ fn ghupd_sample_partition_given_cluster_sizes(ghupd: &mut RExternalPtr, cluster_
         .map(|&x| usize::try_from(x).stop())
         .collect::<Vec<_>>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = ghupd.sample_partition_given_cluster_sizes(&cluster_sizes, &mut rng);
+    let partition = ghupd
+        .sample_partition_given_cluster_sizes(&cluster_sizes, &mut rng)
+        .stop();
     partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
 }
 
@@ -380,6 +400,8 @@ fn ghupd_sample_n_clusters(ghupd: &mut RExternalPtr) {
 fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clusters: usize) {
     let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let cluster_sizes = ghupd.sample_cluster_sizes_given_n_clusters(n_clusters, &mut rng);
+    let cluster_sizes = ghupd
+        .sample_cluster_sizes_given_n_clusters(n_clusters, &mut rng)
+        .stop();
     cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
 }
