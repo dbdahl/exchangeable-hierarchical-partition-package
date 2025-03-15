@@ -12,7 +12,7 @@ struct GeneralizedHierarchicalUniformPartitionDistribution {
     n_clusters_log_probability: Vec<f64>,
     tilt: f64,
     n_clusters_weighted_index: WeightedIndex<f64>,
-    dp: Vec<Vec<f64>>,
+    size_configurations_table: Vec<Vec<f64>>,
 }
 
 impl GeneralizedHierarchicalUniformPartitionDistribution {
@@ -36,29 +36,25 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .collect::<Vec<_>>();
         // unwrap since n_clusters_probabilities are known to be okay.
         let n_clusters_weighted_index = WeightedIndex::new(&n_clusters_probability).unwrap();
-        let dp = Self::precompute_dp(n_items, n_clusters_log_probability.len());
+        let size_configurations_table =
+            Self::precompute_size_configurations_table(n_items, n_clusters_log_probability.len());
         Self {
             n_items,
             n_clusters_log_probability,
             tilt,
             n_clusters_weighted_index,
-            dp,
+            size_configurations_table,
         }
     }
 
-    /// Precompute a DP table where
-    /// dp[i][j] = logarithm of the number of partitions of i into at most j parts.
-    /// i ranges from 0 to max_extra, and j from 0..max_n_clusters.
-    fn precompute_dp(max_extra: usize, max_n_clusters: usize) -> Vec<Vec<f64>> {
-        // Initialize table with -∞ (log 0)
+    fn precompute_size_configurations_table(
+        max_extra: usize,
+        max_n_clusters: usize,
+    ) -> Vec<Vec<f64>> {
         let mut dp = vec![vec![f64::NEG_INFINITY; max_n_clusters]; max_extra + 1];
-
-        // Base: There's exactly one way (log 1 = 0) to partition 0 items.
         for j in 0..max_n_clusters {
             dp[0][j] = 0.0;
         }
-
-        // Fill in the DP table.
         for i in 1..=max_extra {
             for j in 1..max_n_clusters {
                 // Option 1: Do not use a j-sized part.
@@ -69,7 +65,6 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
                 } else {
                     f64::NEG_INFINITY
                 };
-
                 dp[i][j] = if log_without == f64::NEG_INFINITY {
                     log_with
                 } else if log_with == f64::NEG_INFINITY {
@@ -85,30 +80,18 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         dp
     }
 
-    /// Given precomputed dp table, count the logarithm of valid configurations.
-    /// For each g (from w to n/k) treat g as the size of the last cluster, and for the
-    /// remaining items, we look up the log number of partitions (with a shift) from the DP table.
-    fn count_configurations_log_iterative(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
-        // g can range from w to n/k.
+    fn log_n_size_count_configurations(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
         let max_g = n / k;
         let mut results = Vec::with_capacity(max_g - w + 1);
-
         for g in w..=max_g {
             let remaining = n - g;
-
-            // Check if it’s even possible to assign at least g to each of the k-1 clusters.
             if remaining < g * (k - 1) {
                 results.push(f64::NEG_INFINITY); // log(0) = -∞
                 continue;
             }
-
-            // With g already allocated to each of the k-1 clusters,
-            // we have extra = remaining - g*(k-1) items to partition freely into at most (k-1) parts.
             let extra = remaining - g * (k - 1);
-            // The DP table was built for partitions into at most (k-1) parts.
-            results.push(self.dp[extra][k - 1]);
+            results.push(self.size_configurations_table[extra][k - 1]);
         }
-
         results
     }
 
@@ -134,8 +117,9 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         cluster_sizes: &[usize],
         rng: &mut R,
     ) -> Vec<usize> {
+        println!("Cluster sizes: {:?}", cluster_sizes);
         let n_clusters = cluster_sizes.len();
-        let n_items = cluster_sizes.iter().sum::<usize>() + n_clusters;
+        let n_items = cluster_sizes.iter().sum::<usize>();
         let mut permutation: Vec<_> = (0..n_items).collect();
         permutation.shuffle(rng);
         let mut label_map = Vec::with_capacity(n_clusters);
@@ -177,7 +161,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         let mut n_items = self.n_items;
         let mut min_size = 1;
         for k in (1..=n_clusters).rev() {
-            let lw = self.count_configurations_log_iterative(n_items, k, min_size);
+            let lw = self.log_n_size_count_configurations(n_items, k, min_size);
             let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let w = lw.iter().map(|&x| (x - max_lw).exp());
             let weighted_index = WeightedIndex::new(w).unwrap();
