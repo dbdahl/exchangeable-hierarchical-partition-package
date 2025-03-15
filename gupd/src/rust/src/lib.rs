@@ -1,6 +1,8 @@
 // The 'roxido_registration' macro is called at the start of the 'lib.rs' file.
 roxido_registration!();
 
+mod ghupd;
+
 use ahash::AHashMap;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Beta, BetaError, Binomial};
@@ -371,4 +373,240 @@ impl SizeConfiguration {
         }
         true
     }
+}
+
+fn ln_add_exp(a: f64, b: f64) -> f64 {
+    // Computes ln(exp(a) + exp(b)) in a numerically stable way.
+    if a == f64::NEG_INFINITY {
+        return b;
+    }
+    if b == f64::NEG_INFINITY {
+        return a;
+    }
+    let max_val = a.max(b);
+    max_val + ((a - max_val).exp() + (b - max_val).exp()).ln()
+}
+
+fn ln_sub_exp(a: f64, b: f64) -> f64 {
+    // Computes ln(exp(a) - exp(b)) assuming a >= b,
+    // with special handling when b is -∞ (i.e. exp(b) = 0).
+    if b == f64::NEG_INFINITY {
+        return a;
+    }
+    let max_val = a.max(b);
+    max_val + ((a - max_val).exp() - (b - max_val).exp()).ln()
+}
+
+/// Compute the natural logarithm of the number of valid partitions
+/// for `n` items into `k` clusters, considering only configurations
+/// where the last cluster size g is in the range w..=n/k.
+/// Returns a vector of (g, ln(count)) pairs.
+fn count_partitions_ln(n: usize, k: usize, w: usize) -> Vec<(usize, f64)> {
+    // We'll work in log-space where ln(0) is represented by -∞.
+    // We need to store dp values for each total number of items m (0..=n)
+    // for the current number of clusters.
+    let mut dp_prev = vec![f64::NEG_INFINITY; n + 1];
+    let mut dp_curr = vec![f64::NEG_INFINITY; n + 1];
+    // We'll reuse this array for the cumulative (prefix) sums.
+    let mut prefix_sum_ln = vec![f64::NEG_INFINITY; n + 1];
+
+    // Base case: With one cluster, there's exactly one way (ln(1)=0)
+    for m in 0..=n {
+        dp_prev[m] = 0.0;
+    }
+
+    // Build up the solution for clusters = 2 to k.
+    for clusters in 2..=k {
+        // Compute prefix sums for dp_prev in log-space.
+        prefix_sum_ln[0] = dp_prev[0];
+        for m in 1..=n {
+            prefix_sum_ln[m] = ln_add_exp(prefix_sum_ln[m - 1], dp_prev[m]);
+        }
+        // Fill dp_curr for current number of clusters.
+        // For each m (total items), dp_curr[m] represents ln(# partitions)
+        // into 'clusters' clusters.
+        for m in 0..=n {
+            if m < clusters {
+                // Not enough items to have 'clusters' clusters.
+                dp_curr[m] = f64::NEG_INFINITY;
+            } else {
+                // Let min_size be the minimum possible size for a cluster,
+                // which is given by integer division (ensuring non-increasing order).
+                let min_size = m / clusters;
+                // We use the prefix sums to compute the range sum in log-space.
+                dp_curr[m] = ln_sub_exp(
+                    prefix_sum_ln[m - clusters + 1],
+                    if min_size > 0 {
+                        prefix_sum_ln[min_size - 1]
+                    } else {
+                        f64::NEG_INFINITY
+                    },
+                );
+            }
+        }
+        // Move the current dp row into dp_prev for the next iteration.
+        dp_prev.copy_from_slice(&dp_curr);
+    }
+
+    // Now dp_prev is dp[k]. We want to return ln(count) for configurations
+    // where the last cluster has size g, for g in w..=n/k.
+    let max_g = n / k;
+    let mut results = Vec::new();
+    for g in w..=max_g {
+        // dp_prev[n - g] holds the log count for partitions of n items
+        // when the last cluster (of size g) is removed.
+        results.push((g, dp_prev[n - g]));
+    }
+    results
+}
+
+/// Corrected function to count the logarithm of partitions with non-increasing order
+fn count_configurations_log_iterative(n: usize, k: usize, w: usize) -> Vec<f64> {
+    let max_g = n / k;
+    let mut results = Vec::with_capacity(max_g - w + 1);
+
+    for g in w..=max_g {
+        // When g is the size of the last cluster
+        let remaining = n - g;
+
+        // For valid configurations, we need to distribute remaining items
+        // into k-1 clusters, where each cluster has at least g items
+        if remaining < g * (k - 1) {
+            results.push(f64::NEG_INFINITY); // log(0) = -∞
+            continue;
+        }
+
+        // Now we need to find partitions of (remaining) with k-1 parts
+        // where each part is at least g, and parts are in non-increasing order
+
+        // This is equivalent to finding partitions of (remaining - g*(k-1))
+        // into at most k-1 parts, with no minimum size constraint
+        let extra = remaining - g * (k - 1);
+
+        // Calculate log of number of partitions of 'extra' into at most (k-1) parts
+        let log_count = log_partitions_at_most_parts(extra, k - 1);
+        results.push(log_count);
+    }
+
+    results
+}
+
+/// Calculate logarithm of number of partitions of n into at most k parts
+/// using dynamic programming
+fn log_partitions_at_most_parts(n: usize, k: usize) -> f64 {
+    if n == 0 {
+        return 0.0; // log(1) = 0
+    }
+    if k == 0 {
+        return f64::NEG_INFINITY; // log(0) = -∞
+    }
+
+    // dp[i][j] = log of number of partitions of i into at most j parts
+    let mut dp = vec![vec![f64::NEG_INFINITY; k + 1]; n + 1];
+
+    // Base cases
+    for j in 0..=k {
+        dp[0][j] = 0.0; // log(1) = 0, one way to partition 0
+    }
+
+    // Fill the dp table
+    for i in 1..=n {
+        for j in 1..=k {
+            // Case 1: Don't use part j
+            let log_without = dp[i][j - 1];
+
+            // Case 2: Use at least one item in part j
+            let log_with = if i >= j {
+                dp[i - j][j]
+            } else {
+                f64::NEG_INFINITY // Not possible
+            };
+
+            // Combine using log-sum-exp
+            if log_without == f64::NEG_INFINITY {
+                dp[i][j] = log_with;
+            } else if log_with == f64::NEG_INFINITY {
+                dp[i][j] = log_without;
+            } else {
+                let max_log = log_without.max(log_with);
+                let min_log = log_without.min(log_with);
+                dp[i][j] = max_log + (min_log - max_log).exp().ln_1p();
+            }
+        }
+    }
+
+    dp[n][k]
+}
+
+/// Helper function to verify the algorithm's correctness for small inputs
+fn count_configurations_exact(n: usize, k: usize, w: usize) -> Vec<usize> {
+    let max_g = n / k;
+    let mut results = Vec::with_capacity(max_g - w + 1);
+
+    for g in w..=max_g {
+        // Count partitions with exactly k parts, where the smallest part is g
+        let count = count_partitions_with_min_part(n, k, g);
+        results.push(count);
+    }
+
+    results
+}
+
+/// Recursively count partitions with specific constraints (for verification)
+fn count_partitions_with_min_part(n: usize, k: usize, min_part: usize) -> usize {
+    // Base cases
+    if k == 1 {
+        return if n >= min_part { 1 } else { 0 };
+    }
+
+    let mut count = 0;
+    // Try different sizes for the largest part
+    for first_part in min_part..=n {
+        // Ensure we don't exceed remaining parts' capacity
+        if n - first_part >= min_part * (k - 1) {
+            count +=
+                count_partitions_with_largest_part(n - first_part, k - 1, min_part, first_part);
+        }
+    }
+
+    count
+}
+
+/// Count partitions where the largest part is exactly max_part
+fn count_partitions_with_largest_part(
+    n: usize,
+    k: usize,
+    min_part: usize,
+    max_part: usize,
+) -> usize {
+    if k == 1 {
+        return if n >= min_part && n <= max_part { 1 } else { 0 };
+    }
+
+    let mut count = 0;
+    // Try different sizes for the next part, ensuring non-increasing order
+    for next_part in min_part..=max_part.min(n) {
+        if n - next_part >= min_part * (k - 1) {
+            count += count_partitions_with_largest_part(n - next_part, k - 1, min_part, next_part);
+        }
+    }
+
+    count
+}
+
+#[roxido]
+fn count_for_size_configuration(n: usize, k: usize, w: usize) {
+    count_configurations_log_iterative(n, k, w)
+}
+
+#[roxido]
+fn count_for_size_configuration_old(n: usize, k: usize, w: usize) {
+    let data = count_partitions_ln(n, k, w);
+    let result = RMatrix::<f64>::new(2, data.len(), pc);
+    let slice = result.slice_mut();
+    for (i, d) in data.iter().enumerate() {
+        slice[2 * i] = d.0 as f64;
+        slice[2 * i + 1] = d.1;
+    }
+    result
 }
