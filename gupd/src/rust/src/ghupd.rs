@@ -6,6 +6,7 @@ use rand::distr::Distribution;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
+use statrs::function::gamma::ln_gamma;
 
 struct GeneralizedHierarchicalUniformPartitionDistribution {
     n_items: usize,
@@ -14,6 +15,7 @@ struct GeneralizedHierarchicalUniformPartitionDistribution {
     tilt: f64,
     n_clusters_weighted_index: WeightedIndex<f64>,
     size_configurations_table: Vec<Vec<f64>>,
+    log_factorial: Vec<f64>,
 }
 
 impl GeneralizedHierarchicalUniformPartitionDistribution {
@@ -22,10 +24,10 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         n_clusters_log_probability: &[f64],
         tilt: f64,
     ) -> Result<Self, &'static str> {
-        let max_n_clusters = n_clusters_log_probability.len();
-        if max_n_clusters == 0 {
+        if n_clusters_log_probability.len() == 0 {
             return Err("There must be at least one cluster");
         }
+        let max_n_clusters = n_clusters_log_probability.len() - 1;
         let max_log = n_clusters_log_probability
             .iter()
             .cloned()
@@ -49,6 +51,10 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         };
         let size_configurations_table =
             Self::precompute_size_configurations_table(n_items, max_n_clusters);
+        let mut log_factorial = Vec::with_capacity(n_items + 1);
+        for i in 0..=n_items {
+            log_factorial.push(ln_gamma((i as f64) + 1.0));
+        }
         Ok(Self {
             n_items,
             max_n_clusters,
@@ -56,6 +62,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             tilt,
             n_clusters_weighted_index,
             size_configurations_table,
+            log_factorial,
         })
     }
 
@@ -63,12 +70,12 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         max_extra: usize,
         max_n_clusters: usize,
     ) -> Vec<Vec<f64>> {
-        let mut dp = vec![vec![f64::NEG_INFINITY; max_n_clusters]; max_extra + 1];
-        for j in 0..max_n_clusters {
+        let mut dp = vec![vec![f64::NEG_INFINITY; max_n_clusters + 1]; max_extra + 1];
+        for j in 0..=max_n_clusters {
             dp[0][j] = 0.0;
         }
         for i in 1..=max_extra {
-            for j in 1..max_n_clusters {
+            for j in 1..=max_n_clusters {
                 // Option 1: Do not use a j-sized part.
                 let log_without = dp[i][j - 1];
                 // Option 2: Use at least one item in a part of size j.
@@ -198,12 +205,12 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     }
 
     /// Log probability of a partition
-    fn log_probabilty_partition(&self, partition: &[usize]) -> f64 {
+    fn log_probability_partition(&self, partition: &[usize]) -> f64 {
         let cluster_sizes = compute_cluster_sizes(partition);
-        self.log_probabilty_partition_using_cluster_sizes(&cluster_sizes)
+        self.log_probability_partition_using_cluster_sizes(&cluster_sizes)
     }
 
-    fn log_probabilty_partition_using_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
+    fn log_probability_partition_using_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
         let mut sum = self.log_probability_n_clusters(cluster_sizes.len());
         sum += self.log_probability_cluster_sizes_given_n_clusters(&cluster_sizes);
         sum += self.log_probability_partition_given_cluster_sizes(&cluster_sizes);
@@ -211,7 +218,11 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     }
 
     fn log_probability_n_clusters(&self, n_clusters: usize) -> f64 {
-        self.n_clusters_log_probability[n_clusters]
+        if n_clusters > self.max_n_clusters {
+            f64::NEG_INFINITY
+        } else {
+            self.n_clusters_log_probability[n_clusters]
+        }
     }
 
     fn log_probability_cluster_sizes_given_n_clusters(&self, cluster_sizes: &[usize]) -> f64 {
@@ -219,7 +230,22 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     }
 
     fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
-        todo!()
+        let n_items = cluster_sizes.iter().sum::<usize>();
+        if n_items != self.n_items {
+            return -f64::NEG_INFINITY;
+        }
+        let mut log_partitions = self.log_factorial[n_items];
+        for &size in cluster_sizes {
+            log_partitions -= self.log_factorial[size];
+        }
+        let mut counts = AHashMap::new();
+        for &size in cluster_sizes {
+            *counts.entry(size).or_insert(0) += 1;
+        }
+        for &count in counts.values() {
+            log_partitions -= self.log_factorial[count];
+        }
+        -log_partitions
     }
 }
 
@@ -414,4 +440,51 @@ fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clust
         .sample_cluster_sizes_given_n_clusters(n_clusters, &mut rng)
         .stop();
     cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
+}
+
+#[roxido(module = ghupd)]
+fn ghupd_log_probability_partition(ghupd: &mut RExternalPtr, partition: &RVector) {
+    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+    let partition = partition.to_i32(pc);
+    let partition = partition
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    ghupd.log_probability_partition(&partition)
+}
+
+#[roxido(module = ghupd)]
+fn ghupd_log_probability_partition_using_cluster_sizes(
+    ghupd: &RExternalPtr,
+    cluster_sizes: &RVector,
+) {
+    1.0
+}
+
+#[roxido(module = ghupd)]
+fn ghupd_log_probability_n_clusters(ghupd: &RExternalPtr, n_clusters: usize) {
+    1.0
+}
+
+#[roxido(module = ghupd)]
+fn ghupd_log_probability_cluster_sizes_given_n_clusters(
+    ghupd: &RExternalPtr,
+    cluster_sizes: &RVector,
+) {
+    0.0
+}
+
+#[roxido(module = ghupd)]
+fn ghupd_log_probability_partition_given_cluster_sizes(
+    ghupd: &mut RExternalPtr,
+    cluster_sizes: &RVector,
+) {
+    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop());
+    0.0
 }
