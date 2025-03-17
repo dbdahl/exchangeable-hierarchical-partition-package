@@ -289,6 +289,22 @@ where
     cluster_sizes
 }
 
+fn entropy_from_partition<'a, I, T: 'a + Eq + Hash + Copy>(partition: I) -> f64
+where
+    I: ExactSizeIterator<Item = &'a T>,
+{
+    let n_items = partition.len();
+    entropy_from_cluster_sizes(&compute_cluster_sizes(partition), n_items)
+}
+
+fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
+    let n_items = n_items as f64;
+    cluster_sizes.iter().fold(0.0, |s, &x| {
+        let p = (x as f64) / n_items;
+        s - p * p.ln()
+    })
+}
+
 #[roxido(module = ghupd)]
 fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, tilt: f64) {
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
