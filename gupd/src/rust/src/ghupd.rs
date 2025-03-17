@@ -11,9 +11,9 @@ use std::hash::Hash;
 
 struct GeneralizedHierarchicalUniformPartitionDistribution {
     n_items: usize,
-    max_n_clusters: usize,
     n_clusters_log_probability: Vec<f64>,
     tilt: f64,
+    max_n_clusters: usize,
     n_clusters_weighted_index: WeightedIndex<f64>,
     size_configurations_table: Vec<Vec<f64>>,
     log_factorial: Vec<f64>,
@@ -57,9 +57,9 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         }
         Ok(Self {
             n_items,
-            max_n_clusters,
             n_clusters_log_probability,
             tilt,
+            max_n_clusters,
             n_clusters_weighted_index,
             size_configurations_table,
             log_factorial,
