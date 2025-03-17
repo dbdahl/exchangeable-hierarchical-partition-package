@@ -4,6 +4,11 @@ ghupd_new <- function(n_items, n_clusters_log_weights, tilt) {
 }
 
 #' @export
+print.ghupd <- function(ghupd) {
+  cat("Pointer to a Generalized Hierarchical Uniform Partition Distribution (GHUPD)\n")
+}
+
+#' @export
 ghupd_sample_cluster_sizes_given_n_clusters <- function(ghupd, n_clusters) {
   .Call(.ghupd__ghupd_sample_cluster_sizes_given_n_clusters, ghupd, n_clusters)
 }

@@ -177,7 +177,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
 
     /// Sample a number of clusters from the GHUP distribution.
     fn sample_n_clusters<R: Rng>(&self, rng: &mut R) -> usize {
-        self.n_clusters_weighted_index.sample(rng) + 1
+        self.n_clusters_weighted_index.sample(rng)
     }
 
     /// Given a number of clusters, sample a cluster size configuration from the GHUP distribution.
@@ -206,14 +206,14 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
 
     /// Log probability of a partition
     fn log_probability_partition<'a, T: 'a + Eq + Hash + Copy>(&self, partition: &[T]) -> f64 {
-        let cluster_sizes = compute_cluster_sizes(partition.iter());
-        self.log_probability_partition_using_cluster_sizes(&cluster_sizes)
+        let mut cluster_sizes = compute_cluster_sizes(partition.iter());
+        self.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
     }
 
-    fn log_probability_partition_using_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
+    fn log_probability_partition_using_cluster_sizes(&self, cluster_sizes: &mut [usize]) -> f64 {
         let mut sum = self.log_probability_n_clusters(cluster_sizes.len());
-        sum += self.log_probability_cluster_sizes_given_n_clusters(&cluster_sizes);
-        sum += self.log_probability_partition_given_cluster_sizes(&cluster_sizes);
+        sum += self.log_probability_cluster_sizes_given_n_clusters(cluster_sizes);
+        sum += self.log_probability_partition_given_cluster_sizes(cluster_sizes);
         sum
     }
 
@@ -225,14 +225,41 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         }
     }
 
-    fn log_probability_cluster_sizes_given_n_clusters(&self, cluster_sizes: &[usize]) -> f64 {
-        todo!()
+    fn log_probability_cluster_sizes_given_n_clusters(&self, cluster_sizes: &mut [usize]) -> f64 {
+        let n_clusters = cluster_sizes.len();
+        if n_clusters > self.max_n_clusters {
+            return f64::NEG_INFINITY;
+        }
+        let mut n_items = cluster_sizes.iter().sum::<usize>();
+        if n_items != self.n_items {
+            return f64::NEG_INFINITY;
+        }
+        cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
+        let mut min_size = 1;
+        let mut sum_log_probability = 0.0;
+        for k in (1..=n_clusters).rev() {
+            let lw = self.log_n_size_count_configurations(n_items, k, min_size);
+            let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let w = lw.iter().map(|&x| (x - max_lw).exp());
+            let Ok(weighted_index) = WeightedIndex::new(w) else {
+                return f64::NEG_INFINITY;
+            };
+            let sampled_index = cluster_sizes[k - 1] - min_size;
+            min_size += sampled_index;
+            n_items -= min_size;
+            sum_log_probability += weighted_index
+                .weight(sampled_index)
+                .map(|x| x.ln())
+                .unwrap_or(f64::NEG_INFINITY)
+                - weighted_index.total_weight().ln();
+        }
+        sum_log_probability
     }
 
     fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
         let n_items = cluster_sizes.iter().sum::<usize>();
         if n_items != self.n_items {
-            return -f64::NEG_INFINITY;
+            return f64::NEG_INFINITY;
         }
         let mut log_partitions = self.log_factorial[n_items];
         for &size in cluster_sizes {
@@ -390,7 +417,9 @@ fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, tilt: f64) {
         tilt,
     )
     .stop();
-    RExternalPtr::encode(ghupd, "ghupd", pc)
+    let result = RExternalPtr::encode(ghupd, "ghupd", pc);
+    result.set_class(["ghupd"].to_r(pc));
+    result
 }
 
 #[roxido(module = ghupd)]
@@ -460,12 +489,12 @@ fn ghupd_log_probability_partition_using_cluster_sizes(
 ) {
     let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
-    let cluster_sizes = cluster_sizes
+    let mut cluster_sizes = cluster_sizes
         .slice()
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd.log_probability_partition_using_cluster_sizes(&cluster_sizes)
+    ghupd.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
 }
 
 #[roxido(module = ghupd)]
@@ -481,12 +510,12 @@ fn ghupd_log_probability_cluster_sizes_given_n_clusters(
 ) {
     let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
-    let cluster_sizes = cluster_sizes
+    let mut cluster_sizes = cluster_sizes
         .slice()
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd.log_probability_cluster_sizes_given_n_clusters(&cluster_sizes)
+    ghupd.log_probability_cluster_sizes_given_n_clusters(&mut cluster_sizes)
 }
 
 #[roxido(module = ghupd)]
