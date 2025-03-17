@@ -7,6 +7,7 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
 use statrs::function::gamma::ln_gamma;
+use std::hash::Hash;
 
 struct GeneralizedHierarchicalUniformPartitionDistribution {
     n_items: usize,
@@ -27,7 +28,6 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         if n_clusters_log_probability.len() == 0 {
             return Err("There must be at least one cluster");
         }
-        let max_n_clusters = n_clusters_log_probability.len() - 1;
         let max_log = n_clusters_log_probability
             .iter()
             .cloned()
@@ -37,10 +37,10 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .map(|&x| (x - max_log).exp())
             .sum();
         let log_sum_exp = max_log + sum_exp.ln();
-        let n_clusters_log_probability = n_clusters_log_probability
-            .iter()
-            .map(|&x| x - log_sum_exp)
+        let n_clusters_log_probability = std::iter::once(f64::NEG_INFINITY)
+            .chain(n_clusters_log_probability.iter().map(|&x| x - log_sum_exp))
             .collect::<Vec<_>>();
+        let max_n_clusters = n_clusters_log_probability.len() - 1;
         let n_clusters_probability = n_clusters_log_probability
             .iter()
             .map(|&x| x.exp())
@@ -205,8 +205,8 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     }
 
     /// Log probability of a partition
-    fn log_probability_partition(&self, partition: &[usize]) -> f64 {
-        let cluster_sizes = compute_cluster_sizes(partition);
+    fn log_probability_partition<'a, T: 'a + Eq + Hash + Copy>(&self, partition: &[T]) -> f64 {
+        let cluster_sizes = compute_cluster_sizes(partition.iter());
         self.log_probability_partition_using_cluster_sizes(&cluster_sizes)
     }
 
@@ -368,7 +368,10 @@ impl SizesCounter {
     }
 }
 
-fn compute_cluster_sizes(partition: &[usize]) -> Vec<usize> {
+fn compute_cluster_sizes<'a, I, T: 'a + Eq + Hash + Copy>(partition: I) -> Vec<usize>
+where
+    I: Iterator<Item = &'a T>,
+{
     let mut counts = AHashMap::new();
     for &label in partition {
         *counts.entry(label).or_insert(0) += 1;
@@ -446,12 +449,8 @@ fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clust
 fn ghupd_log_probability_partition(ghupd: &mut RExternalPtr, partition: &RVector) {
     let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let partition = partition.to_i32(pc);
-    let partition = partition
-        .slice()
-        .iter()
-        .map(|&c| usize::try_from(c).stop())
-        .collect::<Vec<_>>();
-    ghupd.log_probability_partition(&partition)
+    let slice = partition.slice();
+    ghupd.log_probability_partition(slice)
 }
 
 #[roxido(module = ghupd)]
@@ -459,12 +458,20 @@ fn ghupd_log_probability_partition_using_cluster_sizes(
     ghupd: &RExternalPtr,
     cluster_sizes: &RVector,
 ) {
-    1.0
+    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    ghupd.log_probability_partition_using_cluster_sizes(&cluster_sizes)
 }
 
 #[roxido(module = ghupd)]
 fn ghupd_log_probability_n_clusters(ghupd: &RExternalPtr, n_clusters: usize) {
-    1.0
+    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
+    ghupd.log_probability_n_clusters(n_clusters)
 }
 
 #[roxido(module = ghupd)]
@@ -472,7 +479,14 @@ fn ghupd_log_probability_cluster_sizes_given_n_clusters(
     ghupd: &RExternalPtr,
     cluster_sizes: &RVector,
 ) {
-    0.0
+    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    ghupd.log_probability_cluster_sizes_given_n_clusters(&cluster_sizes)
 }
 
 #[roxido(module = ghupd)]
@@ -485,6 +499,7 @@ fn ghupd_log_probability_partition_given_cluster_sizes(
     let cluster_sizes = cluster_sizes
         .slice()
         .iter()
-        .map(|&c| usize::try_from(c).stop());
-    0.0
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    ghupd.log_probability_partition_given_cluster_sizes(&cluster_sizes)
 }

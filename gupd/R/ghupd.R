@@ -28,3 +28,28 @@ ghupd_sample_partition_given_n_clusters <- function(ghupd, n_clusters) {
   .Call(.ghupd__ghupd_sample_partition_given_n_clusters, ghupd, n_clusters)
 }
 
+#' @export
+ghupd_log_probability_cluster_sizes_given_n_clusters <- function(ghupd, cluster_sizes) {
+  .Call(.ghupd__ghupd_log_probability_cluster_sizes_given_n_clusters, ghupd, cluster_sizes)
+}
+
+#' @export
+ghupd_log_probability_n_clusters <- function(ghupd, n_clusters) {
+  .Call(.ghupd__ghupd_log_probability_n_clusters, ghupd, n_clusters)
+}
+
+#' @export
+ghupd_log_probability_partition <- function(ghupd, partition) {
+  .Call(.ghupd__ghupd_log_probability_partition, ghupd, partition)
+}
+
+#' @export
+ghupd_log_probability_partition_given_cluster_sizes <- function(ghupd, cluster_sizes) {
+  .Call(.ghupd__ghupd_log_probability_partition_given_cluster_sizes, ghupd, cluster_sizes)
+}
+
+#' @export
+ghupd_log_probability_partition_using_cluster_sizes <- function(ghupd, cluster_sizes) {
+  .Call(.ghupd__ghupd_log_probability_partition_using_cluster_sizes, ghupd, cluster_sizes)
+}
+
