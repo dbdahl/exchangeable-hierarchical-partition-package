@@ -1,6 +1,6 @@
 #' @export
-ghupd_new <- function(n_items, n_clusters_log_weights, tilt) {
-  .Call(.ghupd__ghupd_new, n_items, n_clusters_log_weights, tilt)
+ghupd_new <- function(n_items, n_clusters_log_weights, cluster_sizes_distribution) {
+  .Call(.ghupd__ghupd_new, n_items, n_clusters_log_weights, cluster_sizes_distribution)
 }
 
 #' @export

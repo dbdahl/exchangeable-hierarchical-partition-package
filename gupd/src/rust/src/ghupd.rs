@@ -22,46 +22,46 @@ enum ClusterSizesDistribution {
         tilt: f64,
     },
     TiltedBetaBinomial {
-        tilt: f64,
+        alpha: f64,
+        beta: f64,
     },
 }
 
 impl ClusterSizesDistribution {
-    fn new_uniform(n_items: usize, max_n_clusters: usize) -> ClusterSizesDistribution {
-        let table =
-            ClusterSizesDistribution::precompute_size_configurations_table(n_items, max_n_clusters);
-        ClusterSizesDistribution::Uniform {
+    fn new_uniform(n_items: usize, max_n_clusters: usize) -> Self {
+        let table = Self::precompute_size_configurations_table(n_items, max_n_clusters);
+        Self::Uniform {
             n_items,
             max_n_clusters,
             table,
         }
     }
 
-    fn new_beta_binomial(tilt: f64) -> ClusterSizesDistribution {
-        ClusterSizesDistribution::TiltedBetaBinomial { tilt }
+    fn new_beta_binomial(alpha: f64, beta: f64) -> Self {
+        Self::TiltedBetaBinomial { alpha, beta }
     }
 
-    fn update_tilt(self, tilt: f64) -> ClusterSizesDistribution {
+    fn update_tilt(self, tilt: f64) -> Self {
         match self {
-            ClusterSizesDistribution::Uniform {
+            Self::Uniform {
                 n_items,
                 max_n_clusters,
                 table,
             }
-            | ClusterSizesDistribution::TiltedUniform {
+            | Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 table,
                 ..
             } => {
                 if tilt == 0.0 {
-                    ClusterSizesDistribution::Uniform {
+                    Self::Uniform {
                         n_items,
                         max_n_clusters,
                         table,
                     }
                 } else {
-                    ClusterSizesDistribution::TiltedUniform {
+                    Self::TiltedUniform {
                         n_items,
                         max_n_clusters,
                         table,
@@ -69,20 +69,20 @@ impl ClusterSizesDistribution {
                     }
                 }
             }
-            ClusterSizesDistribution::TiltedBetaBinomial { .. } => {
-                ClusterSizesDistribution::TiltedBetaBinomial { tilt }
+            Self::TiltedBetaBinomial { .. } => {
+                panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
             }
         }
     }
 
     fn sample<R: Rng>(&self, n_clusters: usize, rng: &mut R) -> Result<Vec<usize>, &'static str> {
         match self {
-            ClusterSizesDistribution::Uniform {
+            Self::Uniform {
                 n_items,
                 max_n_clusters,
                 ..
             } => {
-                if n_clusters > *max_n_clusters {
+                if n_clusters > *max_n_clusters || n_clusters == 0 {
                     return Err("'n_clusters' is out of bounds");
                 }
                 let mut cluster_sizes = vec![0; n_clusters];
@@ -99,7 +99,7 @@ impl ClusterSizesDistribution {
                 }
                 Ok(cluster_sizes)
             }
-            ClusterSizesDistribution::TiltedUniform {
+            Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 tilt,
@@ -122,13 +122,13 @@ impl ClusterSizesDistribution {
                 }
                 Ok(cluster_sizes)
             }
-            ClusterSizesDistribution::TiltedBetaBinomial { .. } => Ok(vec![0]),
+            Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
         }
     }
 
     fn log_probability(&self, cluster_sizes: &mut [usize]) -> f64 {
         match self {
-            ClusterSizesDistribution::Uniform {
+            Self::Uniform {
                 n_items,
                 max_n_clusters,
                 ..
@@ -162,7 +162,7 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            ClusterSizesDistribution::TiltedUniform {
+            Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 tilt,
@@ -197,7 +197,7 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            ClusterSizesDistribution::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
+            Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
     }
 
@@ -236,8 +236,7 @@ impl ClusterSizesDistribution {
 
     fn log_n_size_count_configurations(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
         match self {
-            ClusterSizesDistribution::Uniform { table, .. }
-            | ClusterSizesDistribution::TiltedUniform { table, .. } => {
+            Self::Uniform { table, .. } | Self::TiltedUniform { table, .. } => {
                 let max_g = n / k;
                 let mut results = Vec::with_capacity(max_g - w + 1);
                 for g in w..=max_g {
@@ -450,9 +449,28 @@ fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
 }
 
 #[roxido(module = ghupd)]
-fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, tilt: f64) {
-    let cluster_sizes_distribution =
-        ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len());
+fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
+    let csd_name = cluster_sizes_distribution.get_by_key("name").stop();
+    let csd_name = csd_name.as_scalar().stop();
+    let cluster_sizes_distribution = match csd_name.str(pc) {
+        "uniform" => ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len()),
+        "tilted_uniform" => {
+            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
+            let tilt = tilt.as_scalar().stop();
+            let tilt = tilt.f64();
+            ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len())
+                .update_tilt(tilt)
+        }
+        "titled_beta_binomial" => {
+            let get_f64 = |name: &str| -> f64 {
+                let x = cluster_sizes_distribution.get_by_key(name).stop();
+                let x = x.as_scalar().stop();
+                x.f64()
+            };
+            ClusterSizesDistribution::new_beta_binomial(get_f64("alpha"), get_f64("beta"))
+        }
+        e => stop!("Unrecognized cluster size distribution: {}", e),
+    };
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
     let ghupd = GeneralizedHierarchicalUniformPartitionDistribution::new(
         n_items,
