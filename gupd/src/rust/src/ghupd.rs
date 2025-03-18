@@ -9,61 +9,196 @@ use rand_pcg::Pcg64Mcg;
 use statrs::function::gamma::ln_gamma;
 use std::hash::Hash;
 
-struct GeneralizedHierarchicalUniformPartitionDistribution {
-    n_items: usize,
-    n_clusters_log_probability: Vec<f64>,
-    tilt: f64,
-    max_n_clusters: usize,
-    n_clusters_weighted_index: WeightedIndex<f64>,
-    size_configurations_table: Vec<Vec<f64>>,
-    log_factorial: Vec<f64>,
+enum ClusterSizesDistribution {
+    Uniform {
+        n_items: usize,
+        max_n_clusters: usize,
+        table: Vec<Vec<f64>>,
+    },
+    TiltedUniform {
+        n_items: usize,
+        max_n_clusters: usize,
+        table: Vec<Vec<f64>>,
+        tilt: f64,
+    },
+    TiltedBetaBinomial {
+        tilt: f64,
+    },
 }
 
-impl GeneralizedHierarchicalUniformPartitionDistribution {
-    fn new(
-        n_items: usize,
-        n_clusters_log_probability: &[f64],
-        tilt: f64,
-    ) -> Result<Self, &'static str> {
-        if n_clusters_log_probability.len() == 0 {
-            return Err("There must be at least one cluster");
-        }
-        let max_log = n_clusters_log_probability
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let sum_exp: f64 = n_clusters_log_probability
-            .iter()
-            .map(|&x| (x - max_log).exp())
-            .sum();
-        let log_sum_exp = max_log + sum_exp.ln();
-        let n_clusters_log_probability = std::iter::once(f64::NEG_INFINITY)
-            .chain(n_clusters_log_probability.iter().map(|&x| x - log_sum_exp))
-            .collect::<Vec<_>>();
-        let max_n_clusters = n_clusters_log_probability.len() - 1;
-        let n_clusters_probability = n_clusters_log_probability
-            .iter()
-            .map(|&x| x.exp())
-            .collect::<Vec<_>>();
-        // unwrap since n_clusters_probabilities are known to be okay.
-        let Ok(n_clusters_weighted_index) = WeightedIndex::new(&n_clusters_probability) else {
-            return Err("Invalid distribution for the number of clusters");
-        };
-        let size_configurations_table =
-            Self::precompute_size_configurations_table(n_items, max_n_clusters);
-        let mut log_factorial = Vec::with_capacity(n_items + 1);
-        for i in 0..=n_items {
-            log_factorial.push(ln_gamma((i as f64) + 1.0));
-        }
-        Ok(Self {
+impl ClusterSizesDistribution {
+    fn new_uniform(n_items: usize, max_n_clusters: usize) -> ClusterSizesDistribution {
+        let table =
+            ClusterSizesDistribution::precompute_size_configurations_table(n_items, max_n_clusters);
+        ClusterSizesDistribution::Uniform {
             n_items,
-            n_clusters_log_probability,
-            tilt,
             max_n_clusters,
-            n_clusters_weighted_index,
-            size_configurations_table,
-            log_factorial,
-        })
+            table,
+        }
+    }
+
+    fn new_beta_binomial(tilt: f64) -> ClusterSizesDistribution {
+        ClusterSizesDistribution::TiltedBetaBinomial { tilt }
+    }
+
+    fn update_tilt(self, tilt: f64) -> ClusterSizesDistribution {
+        match self {
+            ClusterSizesDistribution::Uniform {
+                n_items,
+                max_n_clusters,
+                table,
+            }
+            | ClusterSizesDistribution::TiltedUniform {
+                n_items,
+                max_n_clusters,
+                table,
+                ..
+            } => {
+                if tilt == 0.0 {
+                    ClusterSizesDistribution::Uniform {
+                        n_items,
+                        max_n_clusters,
+                        table,
+                    }
+                } else {
+                    ClusterSizesDistribution::TiltedUniform {
+                        n_items,
+                        max_n_clusters,
+                        table,
+                        tilt,
+                    }
+                }
+            }
+            ClusterSizesDistribution::TiltedBetaBinomial { .. } => {
+                ClusterSizesDistribution::TiltedBetaBinomial { tilt }
+            }
+        }
+    }
+
+    fn sample<R: Rng>(&self, n_clusters: usize, rng: &mut R) -> Result<Vec<usize>, &'static str> {
+        match self {
+            ClusterSizesDistribution::Uniform {
+                n_items,
+                max_n_clusters,
+                ..
+            } => {
+                if n_clusters > *max_n_clusters {
+                    return Err("'n_clusters' is out of bounds");
+                }
+                let mut cluster_sizes = vec![0; n_clusters];
+                let mut n_items = *n_items;
+                let mut min_size = 1;
+                for k in (1..=n_clusters).rev() {
+                    let lw = self.log_n_size_count_configurations(n_items, k, min_size);
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let w = lw.iter().map(|&x| (x - max_lw).exp());
+                    let weighted_index = WeightedIndex::new(w).unwrap();
+                    min_size += weighted_index.sample(rng);
+                    n_items -= min_size;
+                    cluster_sizes[k - 1] = min_size;
+                }
+                Ok(cluster_sizes)
+            }
+            ClusterSizesDistribution::TiltedUniform {
+                n_items,
+                max_n_clusters,
+                tilt,
+                ..
+            } => {
+                if n_clusters > *max_n_clusters {
+                    return Err("'n_clusters' is out of bounds");
+                }
+                let mut cluster_sizes = vec![0; n_clusters];
+                let mut n_items = *n_items;
+                let mut min_size = 1;
+                for k in (1..=n_clusters).rev() {
+                    let lw = self.log_n_size_count_configurations(n_items, k, min_size);
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let w = lw.iter().map(|&x| (tilt + x - max_lw).exp());
+                    let weighted_index = WeightedIndex::new(w).unwrap();
+                    min_size += weighted_index.sample(rng);
+                    n_items -= min_size;
+                    cluster_sizes[k - 1] = min_size;
+                }
+                Ok(cluster_sizes)
+            }
+            ClusterSizesDistribution::TiltedBetaBinomial { .. } => Ok(vec![0]),
+        }
+    }
+
+    fn log_probability(&self, cluster_sizes: &mut [usize]) -> f64 {
+        match self {
+            ClusterSizesDistribution::Uniform {
+                n_items,
+                max_n_clusters,
+                ..
+            } => {
+                let n_clusters = cluster_sizes.len();
+                if n_clusters > *max_n_clusters {
+                    return f64::NEG_INFINITY;
+                }
+                let mut n_items_working = cluster_sizes.iter().sum::<usize>();
+                if n_items_working != *n_items {
+                    return f64::NEG_INFINITY;
+                }
+                cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
+                let mut min_size = 1;
+                let mut sum_log_probability = 0.0;
+                for k in (1..=n_clusters).rev() {
+                    let lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let w = lw.iter().map(|&x| (x - max_lw).exp());
+                    let Ok(weighted_index) = WeightedIndex::new(w) else {
+                        return f64::NEG_INFINITY;
+                    };
+                    let sampled_index = cluster_sizes[k - 1] - min_size;
+                    min_size += sampled_index;
+                    n_items_working -= min_size;
+                    sum_log_probability += weighted_index
+                        .weight(sampled_index)
+                        .map(|x| x.ln())
+                        .unwrap_or(f64::NEG_INFINITY)
+                        - weighted_index.total_weight().ln();
+                }
+                sum_log_probability
+            }
+            ClusterSizesDistribution::TiltedUniform {
+                n_items,
+                max_n_clusters,
+                tilt,
+                ..
+            } => {
+                let n_clusters = cluster_sizes.len();
+                if n_clusters > *max_n_clusters {
+                    return f64::NEG_INFINITY;
+                }
+                let mut n_items_working = cluster_sizes.iter().sum::<usize>();
+                if n_items_working != *n_items {
+                    return f64::NEG_INFINITY;
+                }
+                cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
+                let mut min_size = 1;
+                let mut sum_log_probability = 0.0;
+                for k in (1..=n_clusters).rev() {
+                    let lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let w = lw.iter().map(|&x| (tilt + x - max_lw).exp());
+                    let Ok(weighted_index) = WeightedIndex::new(w) else {
+                        return f64::NEG_INFINITY;
+                    };
+                    let sampled_index = cluster_sizes[k - 1] - min_size;
+                    min_size += sampled_index;
+                    n_items_working -= min_size;
+                    sum_log_probability += weighted_index
+                        .weight(sampled_index)
+                        .map(|x| x.ln())
+                        .unwrap_or(f64::NEG_INFINITY)
+                        - weighted_index.total_weight().ln();
+                }
+                sum_log_probability
+            }
+            ClusterSizesDistribution::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
+        }
     }
 
     fn precompute_size_configurations_table(
@@ -100,18 +235,80 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
     }
 
     fn log_n_size_count_configurations(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
-        let max_g = n / k;
-        let mut results = Vec::with_capacity(max_g - w + 1);
-        for g in w..=max_g {
-            let remaining = n - g;
-            if remaining < g * (k - 1) {
-                results.push(f64::NEG_INFINITY); // log(0) = -∞
-                continue;
+        match self {
+            ClusterSizesDistribution::Uniform { table, .. }
+            | ClusterSizesDistribution::TiltedUniform { table, .. } => {
+                let max_g = n / k;
+                let mut results = Vec::with_capacity(max_g - w + 1);
+                for g in w..=max_g {
+                    let remaining = n - g;
+                    if remaining < g * (k - 1) {
+                        results.push(f64::NEG_INFINITY); // log(0) = -∞
+                        continue;
+                    }
+                    let extra = remaining - g * (k - 1);
+                    results.push(table[extra][k - 1]);
+                }
+                results
             }
-            let extra = remaining - g * (k - 1);
-            results.push(self.size_configurations_table[extra][k - 1]);
+            Self::TiltedBetaBinomial { .. } => {
+                panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
+            }
         }
-        results
+    }
+}
+
+struct GeneralizedHierarchicalUniformPartitionDistribution {
+    n_items: usize,
+    n_clusters_log_probability: Vec<f64>,
+    cluster_sizes_distribution: ClusterSizesDistribution,
+    max_n_clusters: usize,
+    n_clusters_weighted_index: WeightedIndex<f64>,
+    log_factorial: Vec<f64>,
+}
+
+impl GeneralizedHierarchicalUniformPartitionDistribution {
+    fn new(
+        n_items: usize,
+        n_clusters_log_probability: &[f64],
+        cluster_sizes_distribution: ClusterSizesDistribution,
+    ) -> Result<Self, &'static str> {
+        if n_clusters_log_probability.len() == 0 {
+            return Err("There must be at least one cluster");
+        }
+        let max_log = n_clusters_log_probability
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum_exp: f64 = n_clusters_log_probability
+            .iter()
+            .map(|&x| (x - max_log).exp())
+            .sum();
+        let log_sum_exp = max_log + sum_exp.ln();
+        let n_clusters_log_probability = std::iter::once(f64::NEG_INFINITY)
+            .chain(n_clusters_log_probability.iter().map(|&x| x - log_sum_exp))
+            .collect::<Vec<_>>();
+        let max_n_clusters = n_clusters_log_probability.len() - 1;
+        let n_clusters_probability = n_clusters_log_probability
+            .iter()
+            .map(|&x| x.exp())
+            .collect::<Vec<_>>();
+        // unwrap since n_clusters_probabilities are known to be okay.
+        let Ok(n_clusters_weighted_index) = WeightedIndex::new(&n_clusters_probability) else {
+            return Err("Invalid distribution for the number of clusters");
+        };
+        let mut log_factorial = Vec::with_capacity(n_items + 1);
+        for i in 0..=n_items {
+            log_factorial.push(ln_gamma((i as f64) + 1.0));
+        }
+        Ok(Self {
+            n_items,
+            n_clusters_log_probability,
+            cluster_sizes_distribution,
+            max_n_clusters,
+            n_clusters_weighted_index,
+            log_factorial,
+        })
     }
 
     /// Sample a partition from the GHUP distribution.
@@ -128,7 +325,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         n_clusters: usize,
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
-        let cluster_sizes = self.sample_cluster_sizes_given_n_clusters(n_clusters, rng)?;
+        let cluster_sizes = self.cluster_sizes_distribution.sample(n_clusters, rng)?;
         // unwrap is okay since cluster_sizes came from us.
         Ok(self
             .sample_partition_given_cluster_sizes(&cluster_sizes, rng)
@@ -180,30 +377,6 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         self.n_clusters_weighted_index.sample(rng)
     }
 
-    /// Given a number of clusters, sample a cluster size configuration from the GHUP distribution.
-    fn sample_cluster_sizes_given_n_clusters<R: Rng>(
-        &mut self,
-        n_clusters: usize,
-        rng: &mut R,
-    ) -> Result<Vec<usize>, &'static str> {
-        if n_clusters > self.max_n_clusters {
-            return Err("'n_clusters' is out of bounds");
-        }
-        let mut cluster_sizes = vec![0; n_clusters];
-        let mut n_items = self.n_items;
-        let mut min_size = 1;
-        for k in (1..=n_clusters).rev() {
-            let lw = self.log_n_size_count_configurations(n_items, k, min_size);
-            let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let w = lw.iter().map(|&x| (x - max_lw).exp());
-            let weighted_index = WeightedIndex::new(w).unwrap();
-            min_size += weighted_index.sample(rng);
-            n_items -= min_size;
-            cluster_sizes[k - 1] = min_size;
-        }
-        Ok(cluster_sizes)
-    }
-
     /// Log probability of a partition
     fn log_probability_partition<'a, T: 'a + Eq + Hash + Copy>(&self, partition: &[T]) -> f64 {
         let mut cluster_sizes = compute_cluster_sizes(partition.iter());
@@ -212,7 +385,9 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
 
     fn log_probability_partition_using_cluster_sizes(&self, cluster_sizes: &mut [usize]) -> f64 {
         let mut sum = self.log_probability_n_clusters(cluster_sizes.len());
-        sum += self.log_probability_cluster_sizes_given_n_clusters(cluster_sizes);
+        sum += self
+            .cluster_sizes_distribution
+            .log_probability(cluster_sizes);
         sum += self.log_probability_partition_given_cluster_sizes(cluster_sizes);
         sum
     }
@@ -223,37 +398,6 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         } else {
             self.n_clusters_log_probability[n_clusters]
         }
-    }
-
-    fn log_probability_cluster_sizes_given_n_clusters(&self, cluster_sizes: &mut [usize]) -> f64 {
-        let n_clusters = cluster_sizes.len();
-        if n_clusters > self.max_n_clusters {
-            return f64::NEG_INFINITY;
-        }
-        let mut n_items = cluster_sizes.iter().sum::<usize>();
-        if n_items != self.n_items {
-            return f64::NEG_INFINITY;
-        }
-        cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
-        let mut min_size = 1;
-        let mut sum_log_probability = 0.0;
-        for k in (1..=n_clusters).rev() {
-            let lw = self.log_n_size_count_configurations(n_items, k, min_size);
-            let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let w = lw.iter().map(|&x| (x - max_lw).exp());
-            let Ok(weighted_index) = WeightedIndex::new(w) else {
-                return f64::NEG_INFINITY;
-            };
-            let sampled_index = cluster_sizes[k - 1] - min_size;
-            min_size += sampled_index;
-            n_items -= min_size;
-            sum_log_probability += weighted_index
-                .weight(sampled_index)
-                .map(|x| x.ln())
-                .unwrap_or(f64::NEG_INFINITY)
-                - weighted_index.total_weight().ln();
-        }
-        sum_log_probability
     }
 
     fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
@@ -307,11 +451,13 @@ fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
 
 #[roxido(module = ghupd)]
 fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, tilt: f64) {
+    let cluster_sizes_distribution =
+        ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len());
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
     let ghupd = GeneralizedHierarchicalUniformPartitionDistribution::new(
         n_items,
         n_clusters_log_weights.slice(),
-        tilt,
+        cluster_sizes_distribution,
     )
     .stop();
     let result = RExternalPtr::encode(ghupd, "ghupd", pc);
@@ -366,7 +512,8 @@ fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clust
     let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
     let cluster_sizes = ghupd
-        .sample_cluster_sizes_given_n_clusters(n_clusters, &mut rng)
+        .cluster_sizes_distribution
+        .sample(n_clusters, &mut rng)
         .stop();
     cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
 }
@@ -412,7 +559,9 @@ fn ghupd_log_probability_cluster_sizes_given_n_clusters(
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd.log_probability_cluster_sizes_given_n_clusters(&mut cluster_sizes)
+    ghupd
+        .cluster_sizes_distribution
+        .log_probability(&mut cluster_sizes)
 }
 
 #[roxido(module = ghupd)]
