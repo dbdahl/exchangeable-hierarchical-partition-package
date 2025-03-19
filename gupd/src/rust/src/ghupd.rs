@@ -10,11 +10,6 @@ use statrs::function::gamma::ln_gamma;
 use std::hash::Hash;
 
 enum ClusterSizesDistribution {
-    Uniform {
-        n_items: usize,
-        max_n_clusters: usize,
-        table: Vec<Vec<f64>>,
-    },
     TiltedUniform {
         n_items: usize,
         max_n_clusters: usize,
@@ -30,10 +25,11 @@ enum ClusterSizesDistribution {
 impl ClusterSizesDistribution {
     fn new_uniform(n_items: usize, max_n_clusters: usize) -> Self {
         let table = Self::precompute_size_configurations_table(n_items, max_n_clusters);
-        Self::Uniform {
+        Self::TiltedUniform {
             n_items,
             max_n_clusters,
             table,
+            tilt: 0.0,
         }
     }
 
@@ -43,32 +39,17 @@ impl ClusterSizesDistribution {
 
     fn update_tilt(self, tilt: f64) -> Self {
         match self {
-            Self::Uniform {
-                n_items,
-                max_n_clusters,
-                table,
-            }
-            | Self::TiltedUniform {
+            Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 table,
                 ..
-            } => {
-                if tilt == 0.0 {
-                    Self::Uniform {
-                        n_items,
-                        max_n_clusters,
-                        table,
-                    }
-                } else {
-                    Self::TiltedUniform {
-                        n_items,
-                        max_n_clusters,
-                        table,
-                        tilt,
-                    }
-                }
-            }
+            } => Self::TiltedUniform {
+                n_items,
+                max_n_clusters,
+                table,
+                tilt,
+            },
             Self::TiltedBetaBinomial { .. } => {
                 panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
             }
@@ -77,28 +58,6 @@ impl ClusterSizesDistribution {
 
     fn sample<R: Rng>(&self, n_clusters: usize, rng: &mut R) -> Result<Vec<usize>, &'static str> {
         match self {
-            Self::Uniform {
-                n_items,
-                max_n_clusters,
-                ..
-            } => {
-                if n_clusters > *max_n_clusters || n_clusters == 0 {
-                    return Err("'n_clusters' is out of bounds");
-                }
-                let mut cluster_sizes = vec![0; n_clusters];
-                let mut n_items = *n_items;
-                let mut min_size = 1;
-                for k in (1..=n_clusters).rev() {
-                    let lw = self.log_n_size_count_configurations(n_items, k, min_size);
-                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let w = lw.iter().map(|&x| (x - max_lw).exp());
-                    let weighted_index = WeightedIndex::new(w).unwrap();
-                    min_size += weighted_index.sample(rng);
-                    n_items -= min_size;
-                    cluster_sizes[k - 1] = min_size;
-                }
-                Ok(cluster_sizes)
-            }
             Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
@@ -113,7 +72,7 @@ impl ClusterSizesDistribution {
                 let mut min_size = 1;
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items, k, min_size);
-                    if lw.len() > 1 && lw[0].is_finite() {
+                    if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
                         let mut entropies_sum = 0.0;
                         let mut entropies_sum_sq = 0.0;
                         let entropies = (min_size..(min_size + lw.len()))
@@ -133,7 +92,7 @@ impl ClusterSizesDistribution {
                             / (entropies_n * (entropies_n - 1.0)))
                             .sqrt();
                         for (x, entropy) in lw.iter_mut().zip(entropies) {
-                            *x += tilt * (entropy - entropies_mean) / entropies_sd;
+                            *x += *tilt * (entropy - entropies_mean) / entropies_sd;
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -151,40 +110,6 @@ impl ClusterSizesDistribution {
 
     fn log_probability(&self, cluster_sizes: &mut [usize]) -> f64 {
         match self {
-            Self::Uniform {
-                n_items,
-                max_n_clusters,
-                ..
-            } => {
-                let n_clusters = cluster_sizes.len();
-                if n_clusters > *max_n_clusters {
-                    return f64::NEG_INFINITY;
-                }
-                let mut n_items_working = cluster_sizes.iter().sum::<usize>();
-                if n_items_working != *n_items {
-                    return f64::NEG_INFINITY;
-                }
-                cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
-                let mut min_size = 1;
-                let mut sum_log_probability = 0.0;
-                for k in (1..=n_clusters).rev() {
-                    let lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
-                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let w = lw.iter().map(|&x| (x - max_lw).exp());
-                    let Ok(weighted_index) = WeightedIndex::new(w) else {
-                        return f64::NEG_INFINITY;
-                    };
-                    let sampled_index = cluster_sizes[k - 1] - min_size;
-                    min_size += sampled_index;
-                    n_items_working -= min_size;
-                    sum_log_probability += weighted_index
-                        .weight(sampled_index)
-                        .map(|x| x.ln())
-                        .unwrap_or(f64::NEG_INFINITY)
-                        - weighted_index.total_weight().ln();
-                }
-                sum_log_probability
-            }
             Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
@@ -259,7 +184,7 @@ impl ClusterSizesDistribution {
 
     fn log_n_size_count_configurations(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
         match self {
-            Self::Uniform { table, .. } | Self::TiltedUniform { table, .. } => {
+            Self::TiltedUniform { table, .. } => {
                 let max_g = n / k;
                 let mut results = Vec::with_capacity(max_g - w + 1);
                 for g in w..=max_g {
