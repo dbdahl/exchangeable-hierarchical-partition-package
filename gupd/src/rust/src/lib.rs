@@ -86,6 +86,28 @@ fn entropy(partition: &RVector) {
     })
 }
 
+#[roxido]
+fn entropy_from_partition(cluster_sizes: &RVector) {
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    ghupd::entropy_from_partition(cluster_sizes.slice().iter())
+}
+
+#[roxido]
+fn entropy_from_cluster_sizes(cluster_sizes: &RVector) {
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let mut n_items = 0;
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&x| {
+            let size = usize::try_from(x).stop();
+            n_items += size;
+            size
+        })
+        .collect::<Vec<_>>();
+    ghupd::entropy_from_cluster_sizes(&cluster_sizes, n_items)
+}
+
 pub fn sample_beta_binomial<R: Rng + ?Sized>(
     n_items: u64,
     alpha: f64,

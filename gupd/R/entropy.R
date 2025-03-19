@@ -16,3 +16,13 @@
 entropy <- function(x) {
   .Call(.entropy, x)
 }
+
+#' @export
+entropy_from_partition <- function(x) {
+  .Call(.entropy_from_partition, x)
+}
+
+#' @export
+entropy_from_cluster_sizes <- function(x) {
+  .Call(.entropy_from_cluster_sizes, x)
+}

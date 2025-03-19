@@ -1,5 +1,27 @@
 library(gupd)
 
+entropy_from_cluster_sizes(c(5, 1)) # Min
+entropy_from_cluster_sizes(c(3, 3)) # Max
+
+n_items <- 12
+n_clusters <- 4
+
+entropy_from_cluster_sizes(c(4, 4, 3, 1))
+entropy_from_cluster_sizes(c(4, 3, 3, 2))
+entropy_from_cluster_sizes(c(3, 3, 3, 3))
+
+entropy_from_cluster_sizes(c(5, 5, 1, 1))
+entropy_from_cluster_sizes(c(5, 4, 2, 1))
+entropy_from_cluster_sizes(c(4, 4, 3, 1))
+
+entropy_from_cluster_sizes(c(7, 2, 2, 1))
+entropy_from_cluster_sizes(c(6, 3, 2, 1))
+entropy_from_cluster_sizes(c(5, 4, 2, 1))
+
+
+
+
+
 distr <- ghupd_new(10, log(c(0.20, 0.30, 0.10, 0.25, 0.15)), list(name = "uniform"))
 
 x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))

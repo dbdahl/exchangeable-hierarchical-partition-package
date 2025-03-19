@@ -105,7 +105,7 @@ impl ClusterSizesDistribution {
                 tilt,
                 ..
             } => {
-                if n_clusters > *max_n_clusters {
+                if n_clusters > *max_n_clusters || n_clusters == 0 {
                     return Err("'n_clusters' is out of bounds");
                 }
                 let mut cluster_sizes = vec![0; n_clusters];
@@ -432,7 +432,7 @@ where
     cluster_sizes
 }
 
-fn entropy_from_partition<'a, I, T: 'a + Eq + Hash + Copy>(partition: I) -> f64
+pub fn entropy_from_partition<'a, I, T: 'a + Eq + Hash + Copy>(partition: I) -> f64
 where
     I: ExactSizeIterator<Item = &'a T>,
 {
@@ -440,7 +440,7 @@ where
     entropy_from_cluster_sizes(&compute_cluster_sizes(partition), n_items)
 }
 
-fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
+pub fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
     let n_items = n_items as f64;
     cluster_sizes.iter().fold(0.0, |s, &x| {
         let p = (x as f64) / n_items;

@@ -2,6 +2,8 @@
 
 S3method(print,ghupd)
 export(entropy)
+export(entropy_from_cluster_sizes)
+export(entropy_from_partition)
 export(ghupd_log_probability_cluster_sizes_given_n_clusters)
 export(ghupd_log_probability_n_clusters)
 export(ghupd_log_probability_partition)
