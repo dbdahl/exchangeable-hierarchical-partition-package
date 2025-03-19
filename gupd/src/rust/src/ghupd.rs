@@ -68,16 +68,16 @@ impl ClusterSizesDistribution {
                     return Err("'n_clusters' is out of bounds");
                 }
                 let mut cluster_sizes = vec![0; n_clusters];
-                let mut n_items = *n_items;
+                let mut n_items_working = *n_items;
                 let mut min_size = 1;
                 for k in (1..=n_clusters).rev() {
-                    let mut lw = self.log_n_size_count_configurations(n_items, k, min_size);
+                    let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
                     if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
                         let mut entropies_sum = 0.0;
                         let mut entropies_sum_sq = 0.0;
                         let entropies = (min_size..(min_size + lw.len()))
                             .map(|x| {
-                                let y = (n_items - x) as f64;
+                                let y = (n_items_working - x) as f64;
                                 let x = x as f64;
                                 let z = -(x * x.ln() + y * y.ln());
                                 entropies_sum += z;
@@ -99,7 +99,7 @@ impl ClusterSizesDistribution {
                     let w = lw.iter().map(|&x| (x - max_lw).exp());
                     let weighted_index = WeightedIndex::new(w).unwrap();
                     min_size += weighted_index.sample(rng);
-                    n_items -= min_size;
+                    n_items_working -= min_size;
                     cluster_sizes[k - 1] = min_size;
                 }
                 Ok(cluster_sizes)
@@ -128,7 +128,30 @@ impl ClusterSizesDistribution {
                 let mut min_size = 1;
                 let mut sum_log_probability = 0.0;
                 for k in (1..=n_clusters).rev() {
-                    let lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
+                    let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
+                    if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
+                        let mut entropies_sum = 0.0;
+                        let mut entropies_sum_sq = 0.0;
+                        let entropies = (min_size..(min_size + lw.len()))
+                            .map(|x| {
+                                let y = (n_items_working - x) as f64;
+                                let x = x as f64;
+                                let z = -(x * x.ln() + y * y.ln());
+                                entropies_sum += z;
+                                entropies_sum_sq += z * z;
+                                z
+                            })
+                            .collect::<Vec<_>>();
+                        let entropies_n = entropies.len() as f64;
+                        let entropies_mean = entropies_sum / entropies_n;
+                        let entropies_sd = ((entropies_n * entropies_sum_sq
+                            - entropies_sum.powi(2))
+                            / (entropies_n * (entropies_n - 1.0)))
+                            .sqrt();
+                        for (x, entropy) in lw.iter_mut().zip(entropies) {
+                            *x += *tilt * (entropy - entropies_mean) / entropies_sd;
+                        }
+                    }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
                     let w = lw.iter().map(|&x| (tilt + x - max_lw).exp());
                     let Ok(weighted_index) = WeightedIndex::new(w) else {

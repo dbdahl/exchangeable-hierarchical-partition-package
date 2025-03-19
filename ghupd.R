@@ -111,6 +111,15 @@ x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_size
 x / sum(x)  # Should be uniform
 
 
+distr <- ghupd_new(10, rep(1, 5), list(method = "tilted_uniform", tilt = 0.5))
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5))) # Should be 0.2
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1))) # Should be 0.2
+
+sum(sapply(1:5, \(x) {
+  exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x))) # Should be 0.2
+})) # Should be 1
+
+
 distr <- ghupd_new(1000000, rep(1, 100), list(method = "uniform"))
 cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
 ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
