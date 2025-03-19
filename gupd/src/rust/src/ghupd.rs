@@ -112,9 +112,32 @@ impl ClusterSizesDistribution {
                 let mut n_items = *n_items;
                 let mut min_size = 1;
                 for k in (1..=n_clusters).rev() {
-                    let lw = self.log_n_size_count_configurations(n_items, k, min_size);
+                    let mut lw = self.log_n_size_count_configurations(n_items, k, min_size);
+                    if lw.len() > 1 && lw[0].is_finite() {
+                        let mut entropies_sum = 0.0;
+                        let mut entropies_sum_sq = 0.0;
+                        let entropies = (min_size..(min_size + lw.len()))
+                            .map(|x| {
+                                let y = (n_items - x) as f64;
+                                let x = x as f64;
+                                let z = -(x * x.ln() + y * y.ln());
+                                entropies_sum += z;
+                                entropies_sum_sq += z * z;
+                                z
+                            })
+                            .collect::<Vec<_>>();
+                        let entropies_n = entropies.len() as f64;
+                        let entropies_mean = entropies_sum / entropies_n;
+                        let entropies_sd = ((entropies_n * entropies_sum_sq
+                            - entropies_sum.powi(2))
+                            / (entropies_n * (entropies_n - 1.0)))
+                            .sqrt();
+                        for (x, entropy) in lw.iter_mut().zip(entropies) {
+                            *x += tilt * (entropy - entropies_mean) / entropies_sd;
+                        }
+                    }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let w = lw.iter().map(|&x| (tilt + x - max_lw).exp());
+                    let w = lw.iter().map(|&x| (x - max_lw).exp());
                     let weighted_index = WeightedIndex::new(w).unwrap();
                     min_size += weighted_index.sample(rng);
                     n_items -= min_size;
@@ -450,7 +473,7 @@ pub fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f6
 
 #[roxido(module = ghupd)]
 fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
-    let csd_name = cluster_sizes_distribution.get_by_key("name").stop();
+    let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
     let csd_name = csd_name.as_scalar().stop();
     let cluster_sizes_distribution = match csd_name.str(pc) {
         "uniform" => ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len()),

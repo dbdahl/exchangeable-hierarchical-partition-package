@@ -1,33 +1,42 @@
 library(gupd)
 
-entropy_from_cluster_sizes(c(5, 1)) # Min
-entropy_from_cluster_sizes(c(3, 3)) # Max
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 0.0))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
 
-n_items <- 12
-n_clusters <- 4
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 0.5))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
 
-entropy_from_cluster_sizes(c(4, 4, 3, 1))
-entropy_from_cluster_sizes(c(4, 3, 3, 2))
-entropy_from_cluster_sizes(c(3, 3, 3, 3))
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -0.5))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
 
-entropy_from_cluster_sizes(c(5, 5, 1, 1))
-entropy_from_cluster_sizes(c(5, 4, 2, 1))
-entropy_from_cluster_sizes(c(4, 4, 3, 1))
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 2.0))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
 
-entropy_from_cluster_sizes(c(7, 2, 2, 1))
-entropy_from_cluster_sizes(c(6, 3, 2, 1))
-entropy_from_cluster_sizes(c(5, 4, 2, 1))
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -2.0))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
+
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 20.0))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
+
+distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -20.0))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x / sum(x)  # Should be uniform
 
 
 
 
-
-distr <- ghupd_new(10, log(c(0.20, 0.30, 0.10, 0.25, 0.15)), list(name = "uniform"))
+distr <- ghupd_new(10, log(c(0.20, 0.30, 0.10, 0.25, 0.15)), list(method = "uniform"))
 
 x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
 x / sum(x)  # Should match weights above
 
-distr <- ghupd_new(10, log(c(1, 1, 1, 1, 1)), list(name = "uniform"))
+distr <- ghupd_new(10, log(c(1, 1, 1, 1, 1)), list(method = "uniform"))
 
 x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
 x / sum(x)  # Should be uniform
@@ -57,13 +66,13 @@ tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1, 1, 1, 1, 1)),
 
 tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1)), error = \(x) x)
 
-distr <- ghupd_new(10, log(c(1)), list(name = "uniform"))
-tryCatch(ghupd_new(10, numeric(0), list(name = "uniform")), error = \(x) x)
-tryCatch(ghupd_new(10, -Inf, list(name = "uniform")), error = \(x) x)
+distr <- ghupd_new(10, log(c(1)), list(method = "uniform"))
+tryCatch(ghupd_new(10, numeric(0), list(method = "uniform")), error = \(x) x)
+tryCatch(ghupd_new(10, -Inf, list(method = "uniform")), error = \(x) x)
 x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
 x / sum(x)  # Should be one
 
-distr <- ghupd_new(10, rep(1, 5), list(name = "uniform"))
+distr <- ghupd_new(10, rep(1, 5), list(method = "uniform"))
 exp(ghupd_log_probability_n_clusters(distr, 0)) # Should be zero
 exp(ghupd_log_probability_n_clusters(distr, 1)) # Should be 0.2
 exp(ghupd_log_probability_n_clusters(distr, 5)) # Should be 0.2
@@ -83,12 +92,12 @@ exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(7, 3))) # Shou
 exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(8, 2))) # Should be 0.2
 exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1))) # Should be 0.2
 
-distr <- ghupd_new(5, c(1, 1, 1, 1, 1), list(name = "uniform"))
+distr <- ghupd_new(5, c(1, 1, 1, 1, 1), list(method = "uniform"))
 cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
 exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes))
 
 n_items <- 10
-distr <- ghupd_new(n_items, c(1, 1, 1, 1), list(name = "uniform"))
+distr <- ghupd_new(n_items, c(1, 1, 1, 1), list(method = "uniform"))
 partitions <- salso::enumerate.partitions(n_items)
 x <- apply(partitions, 1, \(p) exp(ghupd_log_probability_partition(distr, p)))
 sum(x == 0.0)
@@ -96,14 +105,14 @@ sum(x != 0.0)
 sum(x) # Should be 1
 
 n_items <- 10
-distr <- ghupd_new(n_items, rep(1, n_items), list(name = "uniform"))
+distr <- ghupd_new(n_items, rep(1, n_items), list(method = "uniform"))
 partitions <- salso::enumerate.partitions(n_items)
 x <- apply(partitions, 1, \(p) exp(ghupd_log_probability_partition(distr, p)))
 sum(x == 0.0)
 sum(x != 0.0)
 sum(x) # Should be 1
 
-distr <- ghupd_new(1000000, rep(1, 100), list(name = "uniform"))
+distr <- ghupd_new(1000000, rep(1, 100), list(method = "uniform"))
 cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
 ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
 
