@@ -116,7 +116,7 @@ exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5))) # Shou
 exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1))) # Should be 0.2
 
 sum(sapply(1:5, \(x) {
-  exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x))) # Should be 0.2
+  exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x)))
 })) # Should be 1
 
 
