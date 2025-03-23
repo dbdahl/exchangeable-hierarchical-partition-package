@@ -42,18 +42,18 @@ sample_cluster_sizes <- function(n, k) {
 
 # Example usage:
 set.seed(123)  # For reproducibility
-n <- 10        # Total number of items
-k <- 3         # Desired number of clusters
+n <- 9        # Total number of items
+k <- 4         # Desired number of clusters
 
 z <- table(sapply(seq_len(10000), \(i) paste0(rev(sort(sample_cluster_sizes(n, k))),collapse="")))
 z / sum(z)
 
 
-n_items <- 10
+n_items <- 9
 concentration <- 2
 crp <- CRPPartition(nItems = n_items, concentration = concentration)
 x <- samplePartition(crp, 100000)
-w <- apply(x, 1, \(y) length(unique(y))) == 3
+w <- apply(x, 1, \(y) length(unique(y))) == 4
 mean(w)
 z <- table(apply(x[w,], 1, \(y) paste0(rev(sort(table(y))), collapse="")))
 z / sum(z)
