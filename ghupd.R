@@ -1,5 +1,45 @@
 library(gupd)
 
+distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 1.0))
+x <- t(sapply(seq_len(10000), \(i) ghupd_sample_cluster_sizes_given_n_clusters(distr, 4)))
+w <- TRUE
+z <- table(apply(x[w,], 1, \(y) paste0(y, collapse="")))
+z / sum(z)
+
+
+library(gourd)
+n_items <- 9
+concentration <- 2
+crp <- CRPPartition(nItems = n_items, concentration = concentration)
+x <- samplePartition(crp, 100000)
+w <- apply(x, 1, \(y) length(unique(y))) == 4
+mean(w)
+z <- table(apply(x[w,], 1, \(y) paste0(rev(sort(table(y))), collapse="")))
+z / sum(z)
+
+
+# distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "uniform"))
+
+sum(sapply(1:5, \(x) {
+  exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x)))
+})) # Should be 1
+
+
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1)))
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(8, 2)))
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(7, 3)))
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(6, 4)))
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5)))
+
+
+exp(ghupd_log_probability_n_clusters(distr, 2))
+
+exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1)))
+ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5))
+
+
+
+
 distr <- ghupd_new(10, log(c(0.20, 0.30, 0.10, 0.25, 0.15)), list(method = "uniform"))
 
 x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))

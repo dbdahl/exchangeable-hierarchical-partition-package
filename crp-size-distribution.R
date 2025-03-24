@@ -1,6 +1,7 @@
 library(gourd)
 library(gupd)
 
+# https://chatgpt.com/share/e/67df6757-4378-8009-aaa2-ea15e3b0d498
 
 # Function to compute the unsigned Stirling numbers of the first kind recursively
 stirling <- function(n, k) {

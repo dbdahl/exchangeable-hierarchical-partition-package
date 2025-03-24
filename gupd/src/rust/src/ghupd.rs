@@ -16,9 +16,16 @@ enum ClusterSizesDistribution {
         table: Vec<Vec<f64>>,
         tilt: f64,
     },
+    CRP {
+        n_items: usize,
+        max_n_clusters: usize,
+        table_stirling: Vec<f64>,
+        table_log_gamma: Vec<f64>,
+        _concentration: f64,
+    },
     TiltedBetaBinomial {
-        alpha: f64,
-        beta: f64,
+        _alpha: f64,
+        _beta: f64,
     },
 }
 
@@ -33,8 +40,23 @@ impl ClusterSizesDistribution {
         }
     }
 
+    fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
+        let table_stirling = Self::precompute_stirling_first_table(n_items, max_n_clusters);
+        let table_log_gamma = Self::precompute_log_gamma_table(n_items);
+        Self::CRP {
+            n_items,
+            max_n_clusters,
+            table_stirling,
+            table_log_gamma,
+            _concentration: concentration,
+        }
+    }
+
     fn new_beta_binomial(alpha: f64, beta: f64) -> Self {
-        Self::TiltedBetaBinomial { alpha, beta }
+        Self::TiltedBetaBinomial {
+            _alpha: alpha,
+            _beta: beta,
+        }
     }
 
     fn update_tilt(self, tilt: f64) -> Self {
@@ -50,7 +72,7 @@ impl ClusterSizesDistribution {
                 table,
                 tilt,
             },
-            Self::TiltedBetaBinomial { .. } => {
+            _ => {
                 panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
             }
         }
@@ -102,6 +124,50 @@ impl ClusterSizesDistribution {
                     n_items_working -= min_size;
                     cluster_sizes[k - 1] = min_size;
                 }
+                Ok(cluster_sizes)
+            }
+            Self::CRP {
+                n_items,
+                max_n_clusters,
+                table_stirling,
+                table_log_gamma,
+                ..
+            } => {
+                let mut cluster_sizes = Vec::with_capacity(n_clusters);
+                let mut n_remaining = *n_items;
+                let mut k_remaining = n_clusters;
+                let index = |n: usize, k: usize| -> usize { n * (max_n_clusters + 1) + k };
+                // Loop until only one cluster remains.
+                while k_remaining > 1 {
+                    // The current cluster can have size s in 1..= n_remaining - k_remaining + 1.
+                    let max_s = n_remaining - k_remaining + 1;
+                    let mut log_weights = Vec::with_capacity(max_s);
+                    for s in 1..=max_s {
+                        // ln C(n_remaining-1, s-1)
+                        let lchoose = table_log_gamma[n_remaining]
+                            - table_log_gamma[s]
+                            - table_log_gamma[n_remaining - s + 1];
+                        // ln((s-1)!) = ln_gamma_table[s]
+                        let lfact = table_log_gamma[s];
+                        let log_s_val = table_stirling[index(n_remaining - s, k_remaining - 1)];
+                        log_weights.push(lchoose + lfact + log_s_val);
+                    }
+                    let max_log = log_weights
+                        .iter()
+                        .cloned()
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let weights: Vec<f64> =
+                        log_weights.iter().map(|&w| (w - max_log).exp()).collect();
+
+                    let dist = WeightedIndex::new(&weights).unwrap();
+                    let s_sample = (1..=max_s).into_iter().nth(dist.sample(rng)).unwrap();
+                    cluster_sizes.push(s_sample);
+                    n_remaining -= s_sample;
+                    k_remaining -= 1;
+                }
+                // The final cluster gets all remaining items.
+                cluster_sizes.push(n_remaining);
+                cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
                 Ok(cluster_sizes)
             }
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
@@ -168,8 +234,89 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
+            Self::CRP {
+                table_stirling,
+                table_log_gamma,
+                max_n_clusters,
+                ..
+            } => {
+                let n = cluster_sizes.iter().sum::<usize>();
+                let k = cluster_sizes.len();
+                let index = |n: usize, k: usize| -> usize { n * (max_n_clusters + 1) + k };
+
+                let mut sum = 0.0;
+                for &s in cluster_sizes.iter() {
+                    // ln((s-1)!) = ln_gamma_table[s]
+                    sum += table_log_gamma[s];
+                }
+                sum - table_stirling[index(n, k)]
+            }
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
+    }
+
+    /// Precompute a table of ln_gamma values for integers 1, 2, …, n_max+1.
+    /// ln_gamma_table[i] will equal ln_gamma(i as f64), i.e. ln((i-1)!)
+    pub fn precompute_log_gamma_table(n_max: usize) -> Vec<f64> {
+        // We allocate n_max+2 so that indices 1..=n_max+1 are available.
+        let mut ln_gamma_table = vec![0.0; n_max + 2];
+        // i = 1 corresponds to ln_gamma(1)=0.
+        ln_gamma_table[1] = 0.0;
+        for i in 2..=n_max + 1 {
+            ln_gamma_table[i] = ln_gamma(i as f64);
+        }
+        ln_gamma_table
+    }
+
+    /// Precomputes and returns a table of log‑unsigned Stirling numbers of the first kind.
+    ///
+    /// The table is stored in a vector of length (n_max+1) * (k_max+1) so that the entry
+    /// for (n,k) (with 1 ≤ n ≤ n_max and 1 ≤ k ≤ k_max) is at index: n * (k_max+1) + k.
+    /// (Entries with n < k are left as -∞.)
+    pub fn precompute_stirling_first_table(n_max: usize, k_max: usize) -> Vec<f64> {
+        // Create table with (n_max+1) rows and (k_max+1) columns.
+        let size = (n_max + 1) * (k_max + 1);
+        let mut log_s = vec![f64::NEG_INFINITY; size];
+
+        // Helper to index the table: index(n, k) = n * (k_max+1) + k.
+        let index = |n: usize, k: usize| -> usize { n * (k_max + 1) + k };
+
+        // Base case: S(1,1)=1 so logS(1,1)=0.
+        if n_max >= 1 && k_max >= 1 {
+            log_s[index(1, 1)] = 0.0;
+        }
+
+        // For n >= 2:
+        for n in 2..=n_max {
+            // For k = 1, S(n,1) = (n-1)! so logS(n,1) = ln((n-1)!) = ln_gamma(n)
+            if k_max >= 1 {
+                // Note: ln_gamma(n) is stored at ln_gamma_table[n] if precomputed.
+                // Here we compute it directly via statrs.
+                log_s[index(n, 1)] = ln_gamma(n as f64);
+            }
+            // For k = 2,...,min(n-1, k_max)
+            for k in 2..=(n.min(k_max)) {
+                if k < n {
+                    // Recurrence: S(n,k) = S(n-1,k-1) + (n-1) * S(n-1,k)
+                    let a = log_s[index(n - 1, k - 1)];
+                    let b = (n - 1) as f64 + log_s[index(n - 1, k)];
+                    log_s[index(n, k)] = Self::log_sum_exp(a, b);
+                } else if k == n {
+                    // When n == k, S(n,n) = 1 so log = 0.
+                    log_s[index(n, k)] = 0.0;
+                }
+            }
+        }
+        log_s
+    }
+
+    /// Computes log(exp(a) + exp(b)) in a numerically stable way.
+    fn log_sum_exp(a: f64, b: f64) -> f64 {
+        if a == f64::NEG_INFINITY && b == f64::NEG_INFINITY {
+            return f64::NEG_INFINITY;
+        }
+        let m = a.max(b);
+        m + ((a - m).exp() + (b - m).exp()).ln()
     }
 
     fn precompute_size_configurations_table(
@@ -221,7 +368,7 @@ impl ClusterSizesDistribution {
                 }
                 results
             }
-            Self::TiltedBetaBinomial { .. } => {
+            _ => {
                 panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
             }
         }
@@ -431,6 +578,14 @@ fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_dis
             let tilt = tilt.f64();
             ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len())
                 .update_tilt(tilt)
+        }
+        "crp" => {
+            let concentration = cluster_sizes_distribution
+                .get_by_key("concentration")
+                .stop();
+            let concentration = concentration.as_scalar().stop();
+            let concentration = concentration.f64();
+            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len(), concentration)
         }
         "titled_beta_binomial" => {
             let get_f64 = |name: &str| -> f64 {
