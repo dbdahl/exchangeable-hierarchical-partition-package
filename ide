@@ -1,0 +1,52 @@
+#!/usr/bin/fish
+
+zellij action new-tab --layout (echo 'layout {
+    tab name="R script" cwd="'$PWD'" {
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane split_direction="vertical" {
+            pane
+            pane {
+                command "R"
+            }
+        }
+        pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+    tab name="R pkg" cwd="'$PWD'/gupd" {
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane
+        pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+    tab name="$ R/" cwd="'$PWD'/gupd/R" {
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane
+        pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+    tab name="$ src/rust/" cwd="'$PWD'/gupd/src/rust" {
+                pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane split_direction="vertical" {
+            pane {
+                command "hx src/lib.rs"
+            }
+            pane {
+                command "bacon"
+            }
+        }
+        pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+}' | psub)
