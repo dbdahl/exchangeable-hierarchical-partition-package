@@ -18,9 +18,7 @@ enum ClusterSizesDistribution {
     },
     CRP {
         n_items: usize,
-        max_n_clusters: usize,
         table_log_stirling: Vec<Vec<f64>>,
-        table_log_gamma: Vec<f64>,
         _concentration: f64,
     },
     TiltedBetaBinomial {
@@ -42,12 +40,9 @@ impl ClusterSizesDistribution {
 
     fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
         let table_log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
-        let table_log_gamma = Self::precompute_log_gamma_table(n_items);
         Self::CRP {
             n_items,
-            max_n_clusters,
             table_log_stirling,
-            table_log_gamma,
             _concentration: concentration,
         }
     }
@@ -78,7 +73,12 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn sample<R: Rng>(&self, n_clusters: usize, rng: &mut R) -> Result<Vec<usize>, &'static str> {
+    fn sample<R: Rng>(
+        &self,
+        ghupd: &GeneralizedHierarchicalUniformPartitionDistribution,
+        n_clusters: usize,
+        rng: &mut R,
+    ) -> Result<Vec<usize>, &'static str> {
         match self {
             Self::TiltedUniform {
                 n_items,
@@ -128,15 +128,13 @@ impl ClusterSizesDistribution {
             }
             Self::CRP {
                 n_items,
-                max_n_clusters,
                 table_log_stirling,
-                table_log_gamma,
                 ..
             } => Ok(Self::sample_cluster_sizes(
                 *n_items,
                 n_clusters,
                 table_log_stirling,
-                table_log_gamma,
+                &ghupd.log_factorial,
                 rng,
             )),
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
@@ -203,22 +201,7 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            Self::CRP {
-                table_log_stirling,
-                table_log_gamma,
-                max_n_clusters,
-                ..
-            } => {
-                let n = cluster_sizes.iter().sum::<usize>();
-                let k = cluster_sizes.len();
-
-                let mut sum = 0.0;
-                for &s in cluster_sizes.iter() {
-                    // ln((s-1)!) = ln_gamma_table[s]
-                    sum += table_log_gamma[s];
-                }
-                sum - table_log_stirling[n][k]
-            }
+            Self::CRP { .. } => f64::NEG_INFINITY,
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
     }
@@ -234,7 +217,7 @@ impl ClusterSizesDistribution {
         n_items: usize,
         n_clusters: usize,
         table_log_stirling: &Vec<Vec<f64>>,
-        table_log_gamma: &Vec<f64>,
+        table_log_factorial: &Vec<f64>,
         rng: &mut R,
     ) -> Vec<usize> {
         if n_clusters == 1 {
@@ -247,7 +230,7 @@ impl ClusterSizesDistribution {
 
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
-            let log_weight = table_log_gamma[n_items - 1] - table_log_gamma[n_items - s + 1]
+            let log_weight = table_log_factorial[n_items - 2] - table_log_factorial[n_items - s]
                 + Self::log_stirling(n_items - s, n_clusters - 1);
             lw.push(log_weight);
             possible_s.push(s);
@@ -264,7 +247,7 @@ impl ClusterSizesDistribution {
             n_items - s_sample,
             n_clusters - 1,
             table_log_stirling,
-            table_log_gamma,
+            table_log_factorial,
             rng,
         );
         result.append(&mut remaining);
@@ -296,18 +279,6 @@ impl ClusterSizesDistribution {
             Self::log_stirling(n - 1, k - 1),
             ((n - 1) as f64).ln() + Self::log_stirling(n - 1, k),
         )
-    }
-
-    /// Precompute a table of ln_gamma values for integers 1, 2, …, n_max+1.
-    /// Here ln_gamma_table[i] equals ln_gamma(i as f64), which equals ln((i-1)!).
-    pub fn precompute_log_gamma_table(n_max: usize) -> Vec<f64> {
-        // We'll fill indices 1 ..= n_max+1; index 0 is unused.
-        let mut table = vec![0.0; n_max + 2];
-        table[1] = 0.0; // ln_gamma(1) = 0.
-        for i in 2..=n_max + 1 {
-            table[i] = ln_gamma(i as f64);
-        }
-        table
     }
 
     /// Generates a lookup table for log_stirling numbers with bounds on n and k.
@@ -490,7 +461,9 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         n_clusters: usize,
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
-        let cluster_sizes = self.cluster_sizes_distribution.sample(n_clusters, rng)?;
+        let cluster_sizes = self
+            .cluster_sizes_distribution
+            .sample(self, n_clusters, rng)?;
         // unwrap is okay since cluster_sizes came from us.
         Ok(self
             .sample_partition_given_cluster_sizes(&cluster_sizes, rng)
@@ -705,7 +678,7 @@ fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clust
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
     let cluster_sizes = ghupd
         .cluster_sizes_distribution
-        .sample(n_clusters, &mut rng)
+        .sample(ghupd, n_clusters, &mut rng)
         .stop();
     cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
 }
