@@ -39,7 +39,8 @@ zellij action new-tab --layout (echo 'layout {
         }
         pane split_direction="vertical" {
             pane {
-                command "hx src/lib.rs"
+                command "hx"
+                args "src/lib.rs"
             }
             pane {
                 command "bacon"
