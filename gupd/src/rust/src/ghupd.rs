@@ -132,44 +132,7 @@ impl ClusterSizesDistribution {
                 table_stirling,
                 table_log_gamma,
                 ..
-            } => {
-                let mut cluster_sizes = Vec::with_capacity(n_clusters);
-                let mut n_remaining = *n_items;
-                let mut k_remaining = n_clusters;
-                let index = |n: usize, k: usize| -> usize { n * (max_n_clusters + 1) + k };
-                // Loop until only one cluster remains.
-                while k_remaining > 1 {
-                    // The current cluster can have size s in 1..= n_remaining - k_remaining + 1.
-                    let max_s = n_remaining - k_remaining + 1;
-                    let mut log_weights = Vec::with_capacity(max_s);
-                    for s in 1..=max_s {
-                        // ln C(n_remaining-1, s-1)
-                        let lchoose = table_log_gamma[n_remaining]
-                            - table_log_gamma[s]
-                            - table_log_gamma[n_remaining - s + 1];
-                        // ln((s-1)!) = ln_gamma_table[s]
-                        let lfact = table_log_gamma[s];
-                        let log_s_val = table_stirling[index(n_remaining - s, k_remaining - 1)];
-                        log_weights.push(lchoose + lfact + log_s_val);
-                    }
-                    let max_log = log_weights
-                        .iter()
-                        .cloned()
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let weights: Vec<f64> =
-                        log_weights.iter().map(|&w| (w - max_log).exp()).collect();
-
-                    let dist = WeightedIndex::new(&weights).unwrap();
-                    let s_sample = (1..=max_s).into_iter().nth(dist.sample(rng)).unwrap();
-                    cluster_sizes.push(s_sample);
-                    n_remaining -= s_sample;
-                    k_remaining -= 1;
-                }
-                // The final cluster gets all remaining items.
-                cluster_sizes.push(n_remaining);
-                cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
-                Ok(cluster_sizes)
-            }
+            } => Ok(Self::sample_cluster_sizes(*n_items, n_clusters)),
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
         }
     }
@@ -255,49 +218,109 @@ impl ClusterSizesDistribution {
         }
     }
 
-    /// Precompute a table of ln_gamma values for integers 1, 2, …, n_max+1.
-    /// ln_gamma_table[i] will equal ln_gamma(i as f64), i.e. ln((i-1)!)
-    pub fn precompute_log_gamma_table(n_max: usize) -> Vec<f64> {
-        // We allocate n_max+2 so that indices 1..=n_max+1 are available.
-        let mut ln_gamma_table = vec![0.0; n_max + 2];
-        // i = 1 corresponds to ln_gamma(1)=0.
-        ln_gamma_table[1] = 0.0;
-        for i in 2..=n_max + 1 {
-            ln_gamma_table[i] = ln_gamma(i as f64);
+    /// Recursively samples a cluster size configuration for n items partitioned into k clusters
+    /// using the following rule:
+    ///
+    /// - If k == 1, return [n]
+    /// - Otherwise, let the first cluster size s be chosen from 1 ..= n - k + 1 with weight:
+    ///       weight(s) = choose(n-1, s-1) * factorial(s-1) * stirling(n-s, k-1)
+    ///   Then, recursively sample the sizes for the remaining clusters from the remaining items.
+    fn sample_cluster_sizes(n: usize, k: usize) -> Vec<usize> {
+        if k == 1 {
+            return vec![n];
         }
-        ln_gamma_table
+
+        let max_s = n - k + 1; // each remaining cluster must get at least one item
+        let mut weights: Vec<f64> = Vec::with_capacity(max_s);
+        let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
+
+        // For each candidate first cluster size s, compute the weight.
+        for s in 1..=max_s {
+            let weight =
+                Self::choose(n - 1, s - 1) * Self::factorial(s - 1) * Self::stirling(n - s, k - 1);
+            weights.push(weight);
+            possible_s.push(s);
+        }
+
+        // Sample s from the possible sizes using the computed weights.
+        let mut rng = rand::rng();
+        let dist = WeightedIndex::new(&weights).expect("Weights should be nonnegative");
+        let s_sample = possible_s[dist.sample(&mut rng)];
+
+        // Recursively sample the remaining clusters.
+        let mut result = vec![s_sample];
+        let mut remaining = Self::sample_cluster_sizes(n - s_sample, k - 1);
+        result.append(&mut remaining);
+        result.sort_unstable_by(|a, b| b.cmp(a));
+        result
     }
 
-    /// Precomputes and returns a table of log‑unsigned Stirling numbers of the first kind.
+    /// Computes the unsigned Stirling number of the first kind recursively,
+    /// returning the result as an f64.
     ///
-    /// The table is stored in a vector of length (n_max+1) * (k_max+1) so that the entry
-    /// for (n,k) (with 1 ≤ n ≤ n_max and 1 ≤ k ≤ k_max) is at index: n * (k_max+1) + k.
-    /// (Entries with n < k are left as -∞.)
-    pub fn precompute_stirling_first_table(n_max: usize, k_max: usize) -> Vec<f64> {
-        // Create table with (n_max+1) rows and (k_max+1) columns.
+    /// Base cases:
+    /// - stirling(0,0) = 1
+    /// - stirling(n,0) = 0 or stirling(0,k) = 0 for n>0 or k>0
+    /// - stirling(n,n) = 1
+    ///
+    /// Recursive case:
+    ///   S(n,k) = S(n-1,k-1) + (n-1) * S(n-1,k)
+    fn stirling(n: usize, k: usize) -> f64 {
+        if n == 0 && k == 0 {
+            return 1.0;
+        }
+        if n == 0 || k == 0 {
+            return 0.0;
+        }
+        if n == k {
+            return 1.0;
+        }
+        Self::stirling(n - 1, k - 1) + (n - 1) as f64 * Self::stirling(n - 1, k)
+    }
+
+    /// Computes factorial(n) as an f64.
+    fn factorial(n: usize) -> f64 {
+        (1..=n).fold(1.0, |acc, i| acc * (i as f64))
+    }
+
+    /// Computes the binomial coefficient "n choose k" as an f64.
+    /// Here we compute it as factorial(n) / (factorial(k) * factorial(n - k)).
+    fn choose(n: usize, k: usize) -> f64 {
+        Self::factorial(n) / (Self::factorial(k) * Self::factorial(n - k))
+    }
+
+    /// Precompute a table of ln_gamma values for integers 1, 2, …, n_max+1.
+    /// Here ln_gamma_table[i] equals ln_gamma(i as f64), which equals ln((i-1)!).
+    pub fn precompute_log_gamma_table(n_max: usize) -> Vec<f64> {
+        // We'll fill indices 1 ..= n_max+1; index 0 is unused.
+        let mut table = vec![0.0; n_max + 2];
+        table[1] = 0.0; // ln_gamma(1) = 0.
+        for i in 2..=n_max + 1 {
+            table[i] = ln_gamma(i as f64);
+        }
+        table
+    }
+
+    fn precompute_stirling_first_table(n_max: usize, k_max: usize) -> Vec<f64> {
         let size = (n_max + 1) * (k_max + 1);
         let mut log_s = vec![f64::NEG_INFINITY; size];
 
-        // Helper to index the table: index(n, k) = n * (k_max+1) + k.
+        // Helper to index into the table.
         let index = |n: usize, k: usize| -> usize { n * (k_max + 1) + k };
 
-        // Base case: S(1,1)=1 so logS(1,1)=0.
+        // Base case: S(1,1) = 1 so log S(1,1) = 0.
         if n_max >= 1 && k_max >= 1 {
             log_s[index(1, 1)] = 0.0;
         }
 
-        // For n >= 2:
         for n in 2..=n_max {
-            // For k = 1, S(n,1) = (n-1)! so logS(n,1) = ln((n-1)!) = ln_gamma(n)
+            // For k = 1: S(n,1) = (n-1)!, so log S(n,1) = ln((n-1)!) = ln_gamma(n).
             if k_max >= 1 {
-                // Note: ln_gamma(n) is stored at ln_gamma_table[n] if precomputed.
-                // Here we compute it directly via statrs.
                 log_s[index(n, 1)] = ln_gamma(n as f64);
             }
-            // For k = 2,...,min(n-1, k_max)
+            // For k = 2, ..., min(n-1, k_max):
             for k in 2..=(n.min(k_max)) {
                 if k < n {
-                    // Recurrence: S(n,k) = S(n-1,k-1) + (n-1) * S(n-1,k)
                     let a = log_s[index(n - 1, k - 1)];
                     let b = (n - 1) as f64 + log_s[index(n - 1, k)];
                     log_s[index(n, k)] = Self::log_sum_exp(a, b);
