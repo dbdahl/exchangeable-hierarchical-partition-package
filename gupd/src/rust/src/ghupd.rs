@@ -217,7 +217,7 @@ impl ClusterSizesDistribution {
         n_items: usize,
         n_clusters: usize,
         table_log_stirling: &Vec<Vec<f64>>,
-        table_log_factorial: &Vec<f64>,
+        log_factorial: &Vec<f64>,
         rng: &mut R,
     ) -> Vec<usize> {
         if n_clusters == 1 {
@@ -230,7 +230,7 @@ impl ClusterSizesDistribution {
 
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
-            let log_weight = table_log_factorial[n_items - 2] - table_log_factorial[n_items - s]
+            let log_weight = log_factorial[n_items - 2] - log_factorial[n_items - s]
                 + Self::log_stirling(n_items - s, n_clusters - 1);
             lw.push(log_weight);
             possible_s.push(s);
@@ -247,7 +247,7 @@ impl ClusterSizesDistribution {
             n_items - s_sample,
             n_clusters - 1,
             table_log_stirling,
-            table_log_factorial,
+            log_factorial,
             rng,
         );
         result.append(&mut remaining);
