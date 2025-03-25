@@ -132,7 +132,7 @@ impl ClusterSizesDistribution {
                 table_stirling,
                 table_log_gamma,
                 ..
-            } => Ok(Self::sample_cluster_sizes(*n_items, n_clusters)),
+            } => Ok(Self::sample_cluster_sizes(*n_items, n_clusters, rng)),
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
         }
     }
@@ -225,31 +225,31 @@ impl ClusterSizesDistribution {
     /// - Otherwise, let the first cluster size s be chosen from 1 ..= n - k + 1 with weight:
     ///       weight(s) = choose(n-1, s-1) * factorial(s-1) * stirling(n-s, k-1)
     ///   Then, recursively sample the sizes for the remaining clusters from the remaining items.
-    fn sample_cluster_sizes(n: usize, k: usize) -> Vec<usize> {
-        if k == 1 {
-            return vec![n];
+    fn sample_cluster_sizes<R: Rng>(n_items: usize, n_clusters: usize, rng: &mut R) -> Vec<usize> {
+        if n_clusters == 1 {
+            return vec![n_items];
         }
 
-        let max_s = n - k + 1; // each remaining cluster must get at least one item
-        let mut weights: Vec<f64> = Vec::with_capacity(max_s);
+        let max_s = n_items - n_clusters + 1; // each remaining cluster must get at least one item
+        let mut lw: Vec<f64> = Vec::with_capacity(max_s);
         let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
 
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
-            let weight =
-                Self::choose(n - 1, s - 1) * Self::factorial(s - 1) * Self::stirling(n - s, k - 1);
-            weights.push(weight);
+            let log_weight = ln_gamma((n_items - 1) as f64) - ln_gamma((n_items - s + 1) as f64)
+                + Self::log_stirling(n_items - s, n_clusters - 1);
+            lw.push(log_weight);
             possible_s.push(s);
         }
-
+        let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let w = lw.iter().map(|&x| (x - max_lw).exp());
+        let weighted_index = WeightedIndex::new(w).unwrap();
         // Sample s from the possible sizes using the computed weights.
-        let mut rng = rand::rng();
-        let dist = WeightedIndex::new(&weights).expect("Weights should be nonnegative");
-        let s_sample = possible_s[dist.sample(&mut rng)];
+        let s_sample = possible_s[weighted_index.sample(rng)];
 
         // Recursively sample the remaining clusters.
         let mut result = vec![s_sample];
-        let mut remaining = Self::sample_cluster_sizes(n - s_sample, k - 1);
+        let mut remaining = Self::sample_cluster_sizes(n_items - s_sample, n_clusters - 1, rng);
         result.append(&mut remaining);
         result.sort_unstable_by(|a, b| b.cmp(a));
         result
@@ -265,28 +265,20 @@ impl ClusterSizesDistribution {
     ///
     /// Recursive case:
     ///   S(n,k) = S(n-1,k-1) + (n-1) * S(n-1,k)
-    fn stirling(n: usize, k: usize) -> f64 {
+    fn log_stirling(n: usize, k: usize) -> f64 {
         if n == 0 && k == 0 {
-            return 1.0;
-        }
-        if n == 0 || k == 0 {
             return 0.0;
         }
-        if n == k {
-            return 1.0;
+        if n == 0 || k == 0 {
+            return f64::NEG_INFINITY;
         }
-        Self::stirling(n - 1, k - 1) + (n - 1) as f64 * Self::stirling(n - 1, k)
-    }
-
-    /// Computes factorial(n) as an f64.
-    fn factorial(n: usize) -> f64 {
-        (1..=n).fold(1.0, |acc, i| acc * (i as f64))
-    }
-
-    /// Computes the binomial coefficient "n choose k" as an f64.
-    /// Here we compute it as factorial(n) / (factorial(k) * factorial(n - k)).
-    fn choose(n: usize, k: usize) -> f64 {
-        Self::factorial(n) / (Self::factorial(k) * Self::factorial(n - k))
+        if n == k {
+            return 0.0;
+        }
+        Self::log_sum_exp(
+            Self::log_stirling(n - 1, k - 1),
+            ((n - 1) as f64).ln() + Self::log_stirling(n - 1, k),
+        )
     }
 
     /// Precompute a table of ln_gamma values for integers 1, 2, …, n_max+1.
