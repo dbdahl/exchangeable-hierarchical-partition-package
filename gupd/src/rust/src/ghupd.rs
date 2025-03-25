@@ -16,10 +16,11 @@ enum ClusterSizesDistribution {
         table: Vec<Vec<f64>>,
         tilt: f64,
     },
-    CRP {
+    TiltedCRP {
         n_items: usize,
-        log_stirling: Vec<Vec<f64>>,
         _concentration: f64,
+        log_stirling: Vec<Vec<f64>>,
+        tilt: f64,
     },
     TiltedBetaBinomial {
         _alpha: f64,
@@ -29,7 +30,7 @@ enum ClusterSizesDistribution {
 
 impl ClusterSizesDistribution {
     fn new_uniform(n_items: usize, max_n_clusters: usize) -> Self {
-        let table = Self::precompute_size_configurations_table(n_items, max_n_clusters);
+        let table = Self::precompute_uniform_size_configurations_table(n_items, max_n_clusters);
         Self::TiltedUniform {
             n_items,
             max_n_clusters,
@@ -40,10 +41,11 @@ impl ClusterSizesDistribution {
 
     fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
         let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
-        Self::CRP {
+        Self::TiltedCRP {
             n_items,
-            log_stirling,
             _concentration: concentration,
+            log_stirling,
+            tilt: 0.0,
         }
     }
 
@@ -65,6 +67,17 @@ impl ClusterSizesDistribution {
                 n_items,
                 max_n_clusters,
                 table,
+                tilt,
+            },
+            Self::TiltedCRP {
+                n_items,
+                _concentration,
+                log_stirling,
+                ..
+            } => Self::TiltedCRP {
+                n_items,
+                _concentration,
+                log_stirling,
                 tilt,
             },
             _ => {
@@ -126,7 +139,7 @@ impl ClusterSizesDistribution {
                 }
                 Ok(cluster_sizes)
             }
-            Self::CRP {
+            Self::TiltedCRP {
                 n_items,
                 log_stirling,
                 ..
@@ -201,7 +214,7 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            Self::CRP { .. } => f64::NEG_INFINITY,
+            Self::TiltedCRP { .. } => f64::NEG_INFINITY,
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
     }
@@ -310,7 +323,7 @@ impl ClusterSizesDistribution {
         m + ((a - m).exp() + (b - m).exp()).ln()
     }
 
-    fn precompute_size_configurations_table(
+    fn precompute_uniform_size_configurations_table(
         max_extra: usize,
         max_n_clusters: usize,
     ) -> Vec<Vec<f64>> {
@@ -580,7 +593,19 @@ fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_dis
             let concentration = concentration.f64();
             ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len(), concentration)
         }
-        "titled_beta_binomial" => {
+        "tilted_crp" => {
+            let concentration = cluster_sizes_distribution
+                .get_by_key("concentration")
+                .stop();
+            let concentration = concentration.as_scalar().stop();
+            let concentration = concentration.f64();
+            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
+            let tilt = tilt.as_scalar().stop();
+            let tilt = tilt.f64();
+            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len(), concentration)
+                .update_tilt(tilt)
+        }
+        "tilted_beta_binomial" => {
             let get_f64 = |name: &str| -> f64 {
                 let x = cluster_sizes_distribution.get_by_key(name).stop();
                 let x = x.as_scalar().stop();
