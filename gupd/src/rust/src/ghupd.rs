@@ -18,7 +18,7 @@ enum ClusterSizesDistribution {
     },
     CRP {
         n_items: usize,
-        table_log_stirling: Vec<Vec<f64>>,
+        log_stirling: Vec<Vec<f64>>,
         _concentration: f64,
     },
     TiltedBetaBinomial {
@@ -39,10 +39,10 @@ impl ClusterSizesDistribution {
     }
 
     fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
-        let table_log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
+        let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
         Self::CRP {
             n_items,
-            table_log_stirling,
+            log_stirling,
             _concentration: concentration,
         }
     }
@@ -128,12 +128,12 @@ impl ClusterSizesDistribution {
             }
             Self::CRP {
                 n_items,
-                table_log_stirling,
+                log_stirling,
                 ..
-            } => Ok(Self::sample_cluster_sizes(
+            } => Ok(Self::sample_crp_cluster_sizes(
                 *n_items,
                 n_clusters,
-                table_log_stirling,
+                log_stirling,
                 &ghupd.log_factorial,
                 rng,
             )),
@@ -213,25 +213,23 @@ impl ClusterSizesDistribution {
     /// - Otherwise, let the first cluster size s be chosen from 1 ..= n - k + 1 with weight:
     ///       weight(s) = choose(n-1, s-1) * factorial(s-1) * stirling(n-s, k-1)
     ///   Then, recursively sample the sizes for the remaining clusters from the remaining items.
-    fn sample_cluster_sizes<R: Rng>(
+    fn sample_crp_cluster_sizes<R: Rng>(
         n_items: usize,
         n_clusters: usize,
-        table_log_stirling: &Vec<Vec<f64>>,
+        log_stirling: &Vec<Vec<f64>>,
         log_factorial: &Vec<f64>,
         rng: &mut R,
     ) -> Vec<usize> {
         if n_clusters == 1 {
             return vec![n_items];
         }
-
         let max_s = n_items - n_clusters + 1; // each remaining cluster must get at least one item
         let mut lw: Vec<f64> = Vec::with_capacity(max_s);
         let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
-
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
             let log_weight = log_factorial[n_items - 2] - log_factorial[n_items - s]
-                + Self::log_stirling(n_items - s, n_clusters - 1);
+                + log_stirling[n_items - s][n_clusters - 1];
             lw.push(log_weight);
             possible_s.push(s);
         }
@@ -243,42 +241,16 @@ impl ClusterSizesDistribution {
 
         // Recursively sample the remaining clusters.
         let mut result = vec![s_sample];
-        let mut remaining = Self::sample_cluster_sizes(
+        let mut remaining = Self::sample_crp_cluster_sizes(
             n_items - s_sample,
             n_clusters - 1,
-            table_log_stirling,
+            log_stirling,
             log_factorial,
             rng,
         );
         result.append(&mut remaining);
         result.sort_unstable_by(|a, b| b.cmp(a));
         result
-    }
-
-    /// Computes the unsigned Stirling number of the first kind recursively,
-    /// returning the result as an f64.
-    ///
-    /// Base cases:
-    /// - stirling(0,0) = 1
-    /// - stirling(n,0) = 0 or stirling(0,k) = 0 for n>0 or k>0
-    /// - stirling(n,n) = 1
-    ///
-    /// Recursive case:
-    ///   S(n,k) = S(n-1,k-1) + (n-1) * S(n-1,k)
-    fn log_stirling(n: usize, k: usize) -> f64 {
-        if n == 0 && k == 0 {
-            return 0.0;
-        }
-        if n == 0 || k == 0 {
-            return f64::NEG_INFINITY;
-        }
-        if n == k {
-            return 0.0;
-        }
-        Self::log_sum_exp(
-            Self::log_stirling(n - 1, k - 1),
-            ((n - 1) as f64).ln() + Self::log_stirling(n - 1, k),
-        )
     }
 
     /// Generates a lookup table for log_stirling numbers with bounds on n and k.
