@@ -141,11 +141,13 @@ impl ClusterSizesDistribution {
             }
             Self::TiltedCRP {
                 n_items,
+                tilt,
                 log_stirling,
                 ..
             } => Ok(Self::sample_crp_cluster_sizes(
                 *n_items,
                 n_clusters,
+                tilt,
                 log_stirling,
                 &ghupd.log_factorial,
                 rng,
@@ -199,7 +201,7 @@ impl ClusterSizesDistribution {
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let w = lw.iter().map(|&x| (tilt + x - max_lw).exp());
+                    let w = lw.iter().map(|&x| (x - max_lw).exp());
                     let Ok(weighted_index) = WeightedIndex::new(w) else {
                         return f64::NEG_INFINITY;
                     };
@@ -229,6 +231,7 @@ impl ClusterSizesDistribution {
     fn sample_crp_cluster_sizes<R: Rng>(
         n_items: usize,
         n_clusters: usize,
+        tilt: &f64,
         log_stirling: &Vec<Vec<f64>>,
         log_factorial: &Vec<f64>,
         rng: &mut R,
@@ -246,6 +249,32 @@ impl ClusterSizesDistribution {
             lw.push(log_weight);
             possible_s.push(s);
         }
+        if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
+            let mut entropies_sum = 0.0;
+            let mut entropies_sum_sq = 0.0;
+            let min_size = 1;
+            let n_items_working = n_items;
+            let entropies = (min_size..(min_size + lw.len()))
+                .map(|x| {
+                    let y = (n_items_working - x) as f64;
+                    let x = x as f64;
+                    let z = -(x * x.ln() + y * y.ln());
+                    entropies_sum += z;
+                    entropies_sum_sq += z * z;
+                    z
+                })
+                .collect::<Vec<_>>();
+            let entropies_n = entropies.len() as f64;
+            let entropies_mean = entropies_sum / entropies_n;
+            let entropies_sd = ((entropies_n * entropies_sum_sq - entropies_sum.powi(2))
+                / (entropies_n * (entropies_n - 1.0)))
+                .sqrt();
+            if entropies_sd > 0.0 {
+                for (x, entropy) in lw.iter_mut().zip(entropies) {
+                    *x += *tilt * (entropy - entropies_mean) / entropies_sd;
+                }
+            }
+        }
         let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let w = lw.iter().map(|&x| (x - max_lw).exp());
         let weighted_index = WeightedIndex::new(w).unwrap();
@@ -257,6 +286,7 @@ impl ClusterSizesDistribution {
         let mut remaining = Self::sample_crp_cluster_sizes(
             n_items - s_sample,
             n_clusters - 1,
+            tilt,
             log_stirling,
             log_factorial,
             rng,

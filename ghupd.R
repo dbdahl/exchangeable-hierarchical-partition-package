@@ -21,6 +21,15 @@ z / sum(z)
 
 
 
+
+distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20.0))
+x <- t(sapply(seq_len(100000), \(i) ghupd_sample_cluster_sizes_given_n_clusters(distr, 4)))
+w <- TRUE
+z <- table(apply(x[w,], 1, \(y) paste0(y, collapse="")))
+z / sum(z)
+
+
+
 # Uniform
 
 # distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "uniform"))
