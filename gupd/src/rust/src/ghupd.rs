@@ -19,7 +19,7 @@ enum ClusterSizesDistribution {
     CRP {
         n_items: usize,
         max_n_clusters: usize,
-        table_stirling: Vec<f64>,
+        table_log_stirling: Vec<Vec<f64>>,
         table_log_gamma: Vec<f64>,
         _concentration: f64,
     },
@@ -41,12 +41,12 @@ impl ClusterSizesDistribution {
     }
 
     fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
-        let table_stirling = Self::precompute_stirling_first_table(n_items, max_n_clusters);
+        let table_log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
         let table_log_gamma = Self::precompute_log_gamma_table(n_items);
         Self::CRP {
             n_items,
             max_n_clusters,
-            table_stirling,
+            table_log_stirling,
             table_log_gamma,
             _concentration: concentration,
         }
@@ -129,10 +129,16 @@ impl ClusterSizesDistribution {
             Self::CRP {
                 n_items,
                 max_n_clusters,
-                table_stirling,
+                table_log_stirling,
                 table_log_gamma,
                 ..
-            } => Ok(Self::sample_cluster_sizes(*n_items, n_clusters, rng)),
+            } => Ok(Self::sample_cluster_sizes(
+                *n_items,
+                n_clusters,
+                table_log_stirling,
+                table_log_gamma,
+                rng,
+            )),
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
         }
     }
@@ -198,21 +204,20 @@ impl ClusterSizesDistribution {
                 sum_log_probability
             }
             Self::CRP {
-                table_stirling,
+                table_log_stirling,
                 table_log_gamma,
                 max_n_clusters,
                 ..
             } => {
                 let n = cluster_sizes.iter().sum::<usize>();
                 let k = cluster_sizes.len();
-                let index = |n: usize, k: usize| -> usize { n * (max_n_clusters + 1) + k };
 
                 let mut sum = 0.0;
                 for &s in cluster_sizes.iter() {
                     // ln((s-1)!) = ln_gamma_table[s]
                     sum += table_log_gamma[s];
                 }
-                sum - table_stirling[index(n, k)]
+                sum - table_log_stirling[n][k]
             }
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
@@ -225,7 +230,13 @@ impl ClusterSizesDistribution {
     /// - Otherwise, let the first cluster size s be chosen from 1 ..= n - k + 1 with weight:
     ///       weight(s) = choose(n-1, s-1) * factorial(s-1) * stirling(n-s, k-1)
     ///   Then, recursively sample the sizes for the remaining clusters from the remaining items.
-    fn sample_cluster_sizes<R: Rng>(n_items: usize, n_clusters: usize, rng: &mut R) -> Vec<usize> {
+    fn sample_cluster_sizes<R: Rng>(
+        n_items: usize,
+        n_clusters: usize,
+        table_log_stirling: &Vec<Vec<f64>>,
+        table_log_gamma: &Vec<f64>,
+        rng: &mut R,
+    ) -> Vec<usize> {
         if n_clusters == 1 {
             return vec![n_items];
         }
@@ -236,7 +247,7 @@ impl ClusterSizesDistribution {
 
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
-            let log_weight = ln_gamma((n_items - 1) as f64) - ln_gamma((n_items - s + 1) as f64)
+            let log_weight = table_log_gamma[n_items - 1] - table_log_gamma[n_items - s + 1]
                 + Self::log_stirling(n_items - s, n_clusters - 1);
             lw.push(log_weight);
             possible_s.push(s);
@@ -249,7 +260,13 @@ impl ClusterSizesDistribution {
 
         // Recursively sample the remaining clusters.
         let mut result = vec![s_sample];
-        let mut remaining = Self::sample_cluster_sizes(n_items - s_sample, n_clusters - 1, rng);
+        let mut remaining = Self::sample_cluster_sizes(
+            n_items - s_sample,
+            n_clusters - 1,
+            table_log_stirling,
+            table_log_gamma,
+            rng,
+        );
         result.append(&mut remaining);
         result.sort_unstable_by(|a, b| b.cmp(a));
         result
@@ -293,36 +310,52 @@ impl ClusterSizesDistribution {
         table
     }
 
-    fn precompute_stirling_first_table(n_max: usize, k_max: usize) -> Vec<f64> {
-        let size = (n_max + 1) * (k_max + 1);
-        let mut log_s = vec![f64::NEG_INFINITY; size];
-
-        // Helper to index into the table.
-        let index = |n: usize, k: usize| -> usize { n * (k_max + 1) + k };
-
-        // Base case: S(1,1) = 1 so log S(1,1) = 0.
-        if n_max >= 1 && k_max >= 1 {
-            log_s[index(1, 1)] = 0.0;
+    /// Generates a lookup table for log_stirling numbers with bounds on n and k.
+    /// The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
+    /// the valid k indices are 0 <= k <= min(n, k_max).
+    ///
+    /// The recurrence is defined as:
+    /// - log_stirling(0, 0) = 0.0,
+    /// - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
+    /// - For n <= k_max, log_stirling(n, n) = 0.0,
+    /// - Otherwise for 1 <= k <= min(n, k_max):
+    ///    log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+    ///                                      ln(n-1) + log_stirling(n-1, k) )
+    ///
+    /// # Arguments
+    ///
+    /// * `n_max` - maximum n value to compute.
+    /// * `k_max` - maximum k value to compute (for each n, only values up to min(n, k_max) are computed).
+    fn generate_log_stirling_table(n_max: usize, k_max: usize) -> Vec<Vec<f64>> {
+        // Allocate table where row n has min(n, k_max)+1 entries.
+        let mut table: Vec<Vec<f64>> = Vec::with_capacity(n_max + 1);
+        for n in 0..=n_max {
+            let num_cols = std::cmp::min(n, k_max) + 1;
+            table.push(vec![f64::NEG_INFINITY; num_cols]);
         }
 
-        for n in 2..=n_max {
-            // For k = 1: S(n,1) = (n-1)!, so log S(n,1) = ln((n-1)!) = ln_gamma(n).
-            if k_max >= 1 {
-                log_s[index(n, 1)] = ln_gamma(n as f64);
-            }
-            // For k = 2, ..., min(n-1, k_max):
-            for k in 2..=(n.min(k_max)) {
-                if k < n {
-                    let a = log_s[index(n - 1, k - 1)];
-                    let b = (n - 1) as f64 + log_s[index(n - 1, k)];
-                    log_s[index(n, k)] = Self::log_sum_exp(a, b);
-                } else if k == n {
-                    // When n == k, S(n,n) = 1 so log = 0.
-                    log_s[index(n, k)] = 0.0;
+        // Base case: log_stirling(0, 0) = log(1) = 0.
+        table[0][0] = 0.0;
+
+        // Build the table using the recurrence.
+        for n in 1..=n_max {
+            let max_k = std::cmp::min(n, k_max);
+            for k in 1..=max_k {
+                // When n equals k (and n <= k_max), there's exactly one permutation so log(1) = 0.
+                if n <= k_max && n == k {
+                    table[n][k] = 0.0;
+                } else {
+                    // Use the recurrence:
+                    // log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+                    //                                   ln(n-1) + log_stirling(n-1, k) )
+                    table[n][k] = Self::log_sum_exp(
+                        table[n - 1][k - 1],
+                        ((n - 1) as f64).ln() + table[n - 1][k],
+                    );
                 }
             }
         }
-        log_s
+        table
     }
 
     /// Computes log(exp(a) + exp(b)) in a numerically stable way.
