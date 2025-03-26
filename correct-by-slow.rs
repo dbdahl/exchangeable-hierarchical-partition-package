@@ -83,8 +83,8 @@ fn sample_cluster_sizes(n: usize, k: usize) -> Vec<usize> {
 fn main() {
     // Example usage:
     // Let's say we have n = 10 items and we want exactly k = 3 clusters.
-    let n = 10;
-    let k = 3;
+    let n = 9;
+    let k = 4;
     let num_runs = 10_000_000;
 
     // HashMap to store frequency counts of the resulting strings.
