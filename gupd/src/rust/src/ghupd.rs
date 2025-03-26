@@ -107,27 +107,11 @@ impl ClusterSizesDistribution {
                 let mut min_size = 1;
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
-                    if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
-                        let mut entropies_sum = 0.0;
-                        let mut entropies_sum_sq = 0.0;
-                        let entropies = (min_size..(min_size + lw.len()))
-                            .map(|x| {
-                                let y = (n_items_working - x) as f64;
-                                let x = x as f64;
-                                let z = -(x * x.ln() + y * y.ln());
-                                entropies_sum += z;
-                                entropies_sum_sq += z * z;
-                                z
-                            })
-                            .collect::<Vec<_>>();
-                        let entropies_n = entropies.len() as f64;
-                        let entropies_mean = entropies_sum / entropies_n;
-                        let entropies_sd = ((entropies_n * entropies_sum_sq
-                            - entropies_sum.powi(2))
-                            / (entropies_n * (entropies_n - 1.0)))
-                            .sqrt();
-                        for (x, entropy) in lw.iter_mut().zip(entropies) {
-                            *x += *tilt * (entropy - entropies_mean) / entropies_sd;
+                    if *tilt != 0.0 {
+                        let max1 = (n_items_working as f64) / (k as f64);
+                        let range = min_size..(min_size + lw.len());
+                        for (lw, s) in lw.iter_mut().zip(range) {
+                            *lw -= *tilt * (s as f64 - max1).powi(2);
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -177,27 +161,11 @@ impl ClusterSizesDistribution {
                 let mut sum_log_probability = 0.0;
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
-                    if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
-                        let mut entropies_sum = 0.0;
-                        let mut entropies_sum_sq = 0.0;
-                        let entropies = (min_size..(min_size + lw.len()))
-                            .map(|x| {
-                                let y = (n_items_working - x) as f64;
-                                let x = x as f64;
-                                let z = -(x * x.ln() + y * y.ln());
-                                entropies_sum += z;
-                                entropies_sum_sq += z * z;
-                                z
-                            })
-                            .collect::<Vec<_>>();
-                        let entropies_n = entropies.len() as f64;
-                        let entropies_mean = entropies_sum / entropies_n;
-                        let entropies_sd = ((entropies_n * entropies_sum_sq
-                            - entropies_sum.powi(2))
-                            / (entropies_n * (entropies_n - 1.0)))
-                            .sqrt();
-                        for (x, entropy) in lw.iter_mut().zip(entropies) {
-                            *x += *tilt * (entropy - entropies_mean) / entropies_sd;
+                    if *tilt != 0.0 {
+                        let max1 = (n_items_working as f64) / (k as f64);
+                        let range = min_size..(min_size + lw.len());
+                        for (lw, s) in lw.iter_mut().zip(range) {
+                            *lw -= *tilt * (s as f64 - max1).powi(2);
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -240,40 +208,15 @@ impl ClusterSizesDistribution {
             return vec![n_items];
         }
         let max_s = n_items - n_clusters + 1; // each remaining cluster must get at least one item
+        let max1 = (n_items as f64) / (n_clusters as f64);
         let mut lw: Vec<f64> = Vec::with_capacity(max_s);
         let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
         // For each candidate first cluster size s, compute the weight.
         for s in 1..=max_s {
             let log_weight = log_factorial[n_items - 2] - log_factorial[n_items - s]
                 + log_stirling[n_items - s][n_clusters - 1];
-            lw.push(log_weight);
+            lw.push(log_weight - *tilt * (s as f64 - max1).powi(2));
             possible_s.push(s);
-        }
-        if *tilt != 0.0 && lw.len() > 1 && lw[0].is_finite() {
-            let mut entropies_sum = 0.0;
-            let mut entropies_sum_sq = 0.0;
-            let min_size = 1;
-            let n_items_working = n_items;
-            let entropies = (min_size..(min_size + lw.len()))
-                .map(|x| {
-                    let y = (n_items_working - x) as f64;
-                    let x = x as f64;
-                    let z = -(x * x.ln() + y * y.ln());
-                    entropies_sum += z;
-                    entropies_sum_sq += z * z;
-                    z
-                })
-                .collect::<Vec<_>>();
-            let entropies_n = entropies.len() as f64;
-            let entropies_mean = entropies_sum / entropies_n;
-            let entropies_sd = ((entropies_n * entropies_sum_sq - entropies_sum.powi(2))
-                / (entropies_n * (entropies_n - 1.0)))
-                .sqrt();
-            if entropies_sd > 0.0 {
-                for (x, entropy) in lw.iter_mut().zip(entropies) {
-                    *x += *tilt * (entropy - entropies_mean) / entropies_sd;
-                }
-            }
         }
         let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let w = lw.iter().map(|&x| (x - max_lw).exp());
