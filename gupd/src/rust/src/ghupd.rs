@@ -133,12 +133,12 @@ impl ClusterSizesDistribution {
                 let mut n_items = *n_items;
                 let mut n_clusters = n_clusters;
                 let mut result = Vec::new();
+                // We'll reuse this vector for the sake of efficiency.
+                let mut lw: Vec<f64> = Vec::with_capacity(n_items - n_clusters + 1);
                 while n_clusters > 1 {
                     let max1 = (n_items as f64) / (n_clusters as f64);
                     // Each remaining cluster must get at least one item.
                     let max_s = n_items - n_clusters + 1;
-                    let mut lw: Vec<f64> = Vec::with_capacity(max_s);
-                    let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
                     // For each candidate first cluster size s, compute the weight.
                     for s in 1..=max_s {
                         let log_weight = ghupd.log_factorial[n_items - 2]
@@ -146,24 +146,21 @@ impl ClusterSizesDistribution {
                             + log_stirling[n_items - s][n_clusters - 1];
                         // Apply the tilt adjustment.
                         lw.push(log_weight - *tilt * (s as f64 - max1).powi(2));
-                        possible_s.push(s);
                     }
                     // Normalize weights to avoid overflow.
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
                     let weights: Vec<f64> = lw.iter().map(|&x| (x - max_lw).exp()).collect();
-
                     // Sample s from the candidate sizes using the computed weights.
                     let weighted_index = WeightedIndex::new(&weights).unwrap();
-                    let s_sample = possible_s[weighted_index.sample(rng)];
+                    let s_sample = 1 + weighted_index.sample(rng);
                     result.push(s_sample);
-
                     // Update the remaining items and cluster count.
                     n_items -= s_sample;
                     n_clusters -= 1;
+                    lw.clear();
                 }
                 // The last cluster gets the remaining items.
                 result.push(n_items);
-                // Optional: sort the result in descending order if that’s needed.
                 result.sort_unstable_by(|a, b| b.cmp(a));
                 Ok(result)
             }
@@ -218,56 +215,6 @@ impl ClusterSizesDistribution {
             Self::TiltedCRP { .. } => f64::NEG_INFINITY,
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
-    }
-
-    /// Recursively samples a cluster size configuration for n items partitioned into k clusters
-    /// using the following rule:
-    ///
-    /// - If k == 1, return [n]
-    /// - Otherwise, let the first cluster size s be chosen from 1 ..= n - k + 1 with weight:
-    ///       weight(s) = choose(n-1, s-1) * factorial(s-1) * stirling(n-s, k-1)
-    ///   Then, recursively sample the sizes for the remaining clusters from the remaining items.
-    fn sample_crp_cluster_sizes<R: Rng>(
-        n_items: usize,
-        n_clusters: usize,
-        tilt: &f64,
-        log_stirling: &Vec<Vec<f64>>,
-        log_factorial: &Vec<f64>,
-        rng: &mut R,
-    ) -> Vec<usize> {
-        if n_clusters == 1 {
-            return vec![n_items];
-        }
-        let max_s = n_items - n_clusters + 1; // each remaining cluster must get at least one item
-        let max1 = (n_items as f64) / (n_clusters as f64);
-        let mut lw: Vec<f64> = Vec::with_capacity(max_s);
-        let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
-        // For each candidate first cluster size s, compute the weight.
-        for s in 1..=max_s {
-            let log_weight = log_factorial[n_items - 2] - log_factorial[n_items - s]
-                + log_stirling[n_items - s][n_clusters - 1];
-            lw.push(log_weight - *tilt * (s as f64 - max1).powi(2));
-            possible_s.push(s);
-        }
-        let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let w = lw.iter().map(|&x| (x - max_lw).exp());
-        let weighted_index = WeightedIndex::new(w).unwrap();
-        // Sample s from the possible sizes using the computed weights.
-        let s_sample = possible_s[weighted_index.sample(rng)];
-
-        // Recursively sample the remaining clusters.
-        let mut result = vec![s_sample];
-        let mut remaining = Self::sample_crp_cluster_sizes(
-            n_items - s_sample,
-            n_clusters - 1,
-            tilt,
-            log_stirling,
-            log_factorial,
-            rng,
-        );
-        result.append(&mut remaining);
-        result.sort_unstable_by(|a, b| b.cmp(a));
-        result
     }
 
     /// Generates a lookup table for log_stirling numbers with bounds on n and k.

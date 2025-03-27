@@ -150,7 +150,7 @@ sum(sapply(1:5, \(x) {
 # CRP
 
 distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 2.0))
-x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
+x <- table(sapply(seq_len(20000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
 x / sum(x)
 
 
