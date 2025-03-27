@@ -128,14 +128,45 @@ impl ClusterSizesDistribution {
                 tilt,
                 log_stirling,
                 ..
-            } => Ok(Self::sample_crp_cluster_sizes(
-                *n_items,
-                n_clusters,
-                tilt,
-                log_stirling,
-                &ghupd.log_factorial,
-                rng,
-            )),
+            } => {
+                // Start with the full set of items and clusters.
+                let mut n_items = *n_items;
+                let mut n_clusters = n_clusters;
+                let mut result = Vec::new();
+                while n_clusters > 1 {
+                    let max1 = (n_items as f64) / (n_clusters as f64);
+                    // Each remaining cluster must get at least one item.
+                    let max_s = n_items - n_clusters + 1;
+                    let mut lw: Vec<f64> = Vec::with_capacity(max_s);
+                    let mut possible_s: Vec<usize> = Vec::with_capacity(max_s);
+                    // For each candidate first cluster size s, compute the weight.
+                    for s in 1..=max_s {
+                        let log_weight = ghupd.log_factorial[n_items - 2]
+                            - ghupd.log_factorial[n_items - s]
+                            + log_stirling[n_items - s][n_clusters - 1];
+                        // Apply the tilt adjustment.
+                        lw.push(log_weight - *tilt * (s as f64 - max1).powi(2));
+                        possible_s.push(s);
+                    }
+                    // Normalize weights to avoid overflow.
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let weights: Vec<f64> = lw.iter().map(|&x| (x - max_lw).exp()).collect();
+
+                    // Sample s from the candidate sizes using the computed weights.
+                    let weighted_index = WeightedIndex::new(&weights).unwrap();
+                    let s_sample = possible_s[weighted_index.sample(rng)];
+                    result.push(s_sample);
+
+                    // Update the remaining items and cluster count.
+                    n_items -= s_sample;
+                    n_clusters -= 1;
+                }
+                // The last cluster gets the remaining items.
+                result.push(n_items);
+                // Optional: sort the result in descending order if that’s needed.
+                result.sort_unstable_by(|a, b| b.cmp(a));
+                Ok(result)
+            }
             Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
         }
     }
