@@ -225,8 +225,7 @@ impl ClusterSizesDistribution {
                 ..
             } => {
                 let n_clusters = cluster_sizes.len();
-                let mut n_items_working = cluster_sizes.iter().sum::<usize>();
-                if n_items_working != *n_items {
+                if cluster_sizes.iter().sum::<usize>() != *n_items {
                     return f64::NEG_INFINITY;
                 }
                 // cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
@@ -292,8 +291,8 @@ impl ClusterSizesDistribution {
     /// - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
     /// - For n <= k_max, log_stirling(n, n) = 0.0,
     /// - Otherwise for 1 <= k <= min(n, k_max):
-    ///    log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
-    ///                                      ln(n-1) + log_stirling(n-1, k) )
+    ///   log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+    ///   ln(n-1) + log_stirling(n-1, k) )
     ///
     /// # Arguments
     ///
@@ -411,7 +410,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         n_clusters_log_probability: &[f64],
         cluster_sizes_distribution: ClusterSizesDistribution,
     ) -> Result<Self, &'static str> {
-        if n_clusters_log_probability.len() == 0 {
+        if n_clusters_log_probability.is_empty() {
             return Err("There must be at least one cluster");
         }
         let max_log = n_clusters_log_probability
@@ -527,7 +526,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         let mut sum = self.log_probability_n_clusters(cluster_sizes.len());
         sum += self
             .cluster_sizes_distribution
-            .log_probability(cluster_sizes);
+            .log_probability(self, cluster_sizes);
         sum += self.log_probability_partition_given_cluster_sizes(cluster_sizes);
         sum
     }
@@ -740,7 +739,7 @@ fn ghupd_log_probability_cluster_sizes_given_n_clusters(
         .collect::<Vec<_>>();
     ghupd
         .cluster_sizes_distribution
-        .log_probability(&mut cluster_sizes)
+        .log_probability(ghupd, &mut cluster_sizes)
 }
 
 #[roxido(module = ghupd)]

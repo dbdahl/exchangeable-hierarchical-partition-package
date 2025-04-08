@@ -47,23 +47,7 @@
 //   https://www.tidyverse.org/blog/2019/05/resource-cleanup-in-c-and-the-r-api
 //   https://github.com/wch/r-source
 
-/// A procedural macro for calling a Rust function from R.
-///
-/// # Example
-///
-/// ```
-/// #[roxido]
-/// fn convolve2(a: &RVector, b: &RVector) {
-///     let vec = RVector::from_value(0.0, a.len() + b.len() - 1, pc);
-///     let ab = vec.slice_mut();
-///     for (i, ai) in a.to_f64(pc).slice().iter().enumerate() {
-///         for (j, bj) in b.to_f64(pc).slice().iter().enumerate() {
-///             ab[i + j] += ai * bj;
-///         }
-///     }
-///     vec
-/// }
-/// ```
+/// A procedural macro to facilitate calling a Rust function from R.
 pub use roxido_macro::roxido;
 
 pub use rbindings;
@@ -472,15 +456,15 @@ impl R {
 
     /// Checks if a logical value (stored as an `i32`) can be evaluated as R's `TRUE`.
     pub fn is_true(x: i32) -> bool {
-        x != Rboolean_FALSE.try_into().unwrap() && !Self::is_na_bool(x)
+        x != Rboolean_FALSE && !Self::is_na_bool(x)
     }
 
     /// Convert a `bool` into a logical value (stored as an `i32`).
     pub fn as_logical(x: bool) -> i32 {
         if x {
-            Rboolean_TRUE.try_into().unwrap()
+            Rboolean_TRUE
         } else {
-            Rboolean_FALSE.try_into().unwrap()
+            Rboolean_FALSE
         }
     }
 
@@ -798,7 +782,11 @@ impl RObject {
 
     /// Check if it can be interpreted as a data frame in R.
     pub fn is_data_frame(&self) -> bool {
-        unsafe { Rf_isFrame(self.sexp()) != 0 }
+        if unsafe { TYPEOF(self.sexp()) } != VECSXP as i32 {
+            return false;
+        }
+        let cstr = CString::new("data.frame").unwrap();
+        unsafe { Rf_inherits(self.sexp(), cstr.as_ptr()) != 0 }
     }
 
     /// Check if it can be interpreted as a function in R.
@@ -2095,6 +2083,28 @@ macro_rules! rlistlike {
                 }
             }
 
+            /// Set the values in the R list via a closure with a mutable reference to a local Pc.
+            ///
+            /// This is slightly less efficient than `set` but is useful to avoid overflowing R's PROTECT stack for
+            /// very large lists.
+            pub fn set_loop_with_pc<T: RObjectVariant, F: FnMut(&mut Pc) -> &T>(
+                &mut self,
+                index: usize,
+                mut x: F,
+            ) -> Result<(), &'static str> {
+                if index < self.len() {
+                    let mut pc = Pc::default();
+                    for i in 0..self.len() {
+                        unsafe {
+                            SET_VECTOR_ELT(self.sexp(), i.try_into().unwrap(), x(&mut pc).sexp())
+                        };
+                    }
+                    Ok(())
+                } else {
+                    Err("Index out of bounds.")
+                }
+            }
+
             /// Get a value in an R list based on its key.
             pub fn get_by_key(&self, key: impl AsRef<str>) -> Result<&RObject, String> {
                 let names = self.get_names();
@@ -2454,13 +2464,13 @@ pub fn __private_print(x: &str, newline: bool, use_stdout: bool) -> bool {
             };
             if (*y_ptr).newline {
                 f(
-                    b"%.*s\n\0".as_ptr() as *const c_char,
+                    c"%.*s\n".as_ptr() as *const c_char,
                     (*y_ptr).len,
                     (*y_ptr).ptr,
                 );
             } else {
                 f(
-                    b"%.*s\0".as_ptr() as *const c_char,
+                    c"%.*s".as_ptr() as *const c_char,
                     (*y_ptr).len,
                     (*y_ptr).ptr,
                 );
