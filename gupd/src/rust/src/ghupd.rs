@@ -108,10 +108,10 @@ impl ClusterSizesDistribution {
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
                     if *tilt != 0.0 {
-                        let max1 = (n_items_working as f64) / (k as f64);
+                        let ideal_size_for_max_entropy = (n_items_working as f64) / (k as f64);
                         let range = min_size..(min_size + lw.len());
                         for (lw, s) in lw.iter_mut().zip(range) {
-                            *lw -= *tilt * (s as f64 - max1).powi(2);
+                            *lw -= *tilt * (s as f64 - ideal_size_for_max_entropy).powi(2);
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -136,7 +136,7 @@ impl ClusterSizesDistribution {
                 // We'll reuse this vector for the sake of efficiency.
                 let mut lw: Vec<f64> = Vec::with_capacity(n_items - n_clusters + 1);
                 while n_clusters > 1 {
-                    let max1 = (n_items as f64) / (n_clusters as f64);
+                    let ideal_size_for_max_entropy = (n_items as f64) / (n_clusters as f64);
                     // Each remaining cluster must get at least one item.
                     let max_s = n_items - n_clusters + 1;
                     // For each candidate first cluster size s, compute the weight.
@@ -145,7 +145,9 @@ impl ClusterSizesDistribution {
                             - ghupd.log_factorial[n_items - s]
                             + log_stirling[n_items - s][n_clusters - 1];
                         // Apply the tilt adjustment.
-                        lw.push(log_weight - *tilt * (s as f64 - max1).powi(2));
+                        lw.push(
+                            log_weight - *tilt * (s as f64 - ideal_size_for_max_entropy).powi(2),
+                        );
                     }
                     // Normalize weights to avoid overflow.
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -168,7 +170,11 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn log_probability(&self, cluster_sizes: &mut [usize]) -> f64 {
+    fn log_probability(
+        &self,
+        ghupd: &GeneralizedHierarchicalUniformPartitionDistribution,
+        cluster_sizes: &mut [usize],
+    ) -> f64 {
         match self {
             Self::TiltedUniform {
                 n_items,
@@ -190,10 +196,10 @@ impl ClusterSizesDistribution {
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
                     if *tilt != 0.0 {
-                        let max1 = (n_items_working as f64) / (k as f64);
+                        let ideal_size_for_max_entropy = (n_items_working as f64) / (k as f64);
                         let range = min_size..(min_size + lw.len());
                         for (lw, s) in lw.iter_mut().zip(range) {
-                            *lw -= *tilt * (s as f64 - max1).powi(2);
+                            *lw -= *tilt * (s as f64 - ideal_size_for_max_entropy).powi(2);
                         }
                     }
                     let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -212,7 +218,67 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            Self::TiltedCRP { .. } => f64::NEG_INFINITY,
+            Self::TiltedCRP {
+                n_items,
+                tilt,
+                log_stirling,
+                ..
+            } => {
+                let n_clusters = cluster_sizes.len();
+                let mut n_items_working = cluster_sizes.iter().sum::<usize>();
+                if n_items_working != *n_items {
+                    return f64::NEG_INFINITY;
+                }
+                // cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
+                // Start with the full set of items and clusters.
+                let mut n_items = *n_items;
+                let mut n_clusters = n_clusters;
+                // We'll reuse this vector for the sake of efficiency.
+                let mut lw: Vec<f64> = Vec::with_capacity(n_items - n_clusters + 1);
+                let mut sum_log_probability = 0.0;
+                let mut counter = 0;
+                while n_clusters > 1 {
+                    let ideal_size_for_max_entropy = (n_items as f64) / (n_clusters as f64);
+                    // Each remaining cluster must get at least one item.
+                    let max_s = n_items - n_clusters + 1;
+                    // For each candidate first cluster size s, compute the weight.
+                    for s in 1..=max_s {
+                        let log_weight = ghupd.log_factorial[n_items - 2]
+                            - ghupd.log_factorial[n_items - s]
+                            + log_stirling[n_items - s][n_clusters - 1];
+                        // Apply the tilt adjustment.
+                        lw.push(
+                            log_weight - *tilt * (s as f64 - ideal_size_for_max_entropy).powi(2),
+                        );
+                    }
+                    // Normalize weights to avoid overflow.
+                    let max_lw = lw.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let weights: Vec<f64> = lw.iter().map(|&x| (x - max_lw).exp()).collect();
+                    // Sample s from the candidate sizes using the computed weights.
+                    let Ok(weighted_index) = WeightedIndex::new(&weights) else {
+                        return f64::NEG_INFINITY;
+                    };
+                    let s_sample = cluster_sizes[counter] - 1;
+                    sum_log_probability += weighted_index
+                        .weight(s_sample)
+                        .map(|x| x.ln())
+                        .unwrap_or(f64::NEG_INFINITY)
+                        - weighted_index.total_weight().ln();
+                    counter += 1;
+                    n_items -= s_sample;
+                    n_clusters -= 1;
+                    lw.clear();
+
+                    let s_sample = 1 + cluster_sizes[counter];
+
+                    counter += 1;
+                    // Update the remaining items and cluster count.
+                    n_items -= s_sample;
+                    n_clusters -= 1;
+                    lw.clear();
+                }
+                sum_log_probability
+            }
             Self::TiltedBetaBinomial { .. } => f64::NEG_INFINITY,
         }
     }
