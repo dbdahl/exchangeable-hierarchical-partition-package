@@ -72,7 +72,7 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
 }
 
 #[roxido]
-fn entropy(partition: &RVector) {
+fn entropy_from_partition(partition: &RVector) {
     let partition = partition.to_i32(pc);
     let slice = partition.slice();
     let n_items = slice.len() as f64;
@@ -87,25 +87,15 @@ fn entropy(partition: &RVector) {
 }
 
 #[roxido]
-fn entropy_from_partition(cluster_sizes: &RVector) {
-    let cluster_sizes = cluster_sizes.to_i32(pc);
-    ghupd::entropy_from_partition(cluster_sizes.slice().iter())
-}
-
-#[roxido]
 fn entropy_from_cluster_sizes(cluster_sizes: &RVector) {
     let cluster_sizes = cluster_sizes.to_i32(pc);
     let mut n_items = 0;
-    let cluster_sizes = cluster_sizes
-        .slice()
-        .iter()
-        .map(|&x| {
-            let size = usize::try_from(x).stop();
-            n_items += size;
-            size
-        })
-        .collect::<Vec<_>>();
-    ghupd::entropy_from_cluster_sizes(&cluster_sizes, n_items)
+    let sum = cluster_sizes.slice().iter().fold(0.0, |s, &x| {
+        let size = usize::try_from(x).stop();
+        n_items += size;
+        s - (size as f64) * (size as f64).ln()
+    });
+    sum / (n_items as f64) + (n_items as f64).ln()
 }
 
 pub fn sample_beta_binomial<R: Rng + ?Sized>(
