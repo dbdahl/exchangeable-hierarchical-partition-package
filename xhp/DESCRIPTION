@@ -1,5 +1,5 @@
-Package: gupd
-Title: Generalized Uniform Partition Distribution
+Package: xhp
+Title: Exchangeable Hierarchical Partition Distribution
 Version: 0.1.5
 Authors@R: c(person(given = "First", family = "Last", role = c("aut", "cre"), email = "name@gmail.com", comment = c(ORCID = "ORCID-ID")),
     person(given = "Alex", family = "Crichton", email = "alex@alexcrichton.com", role = "ctb", comment = c("Rust crate: proc-macro2")),
@@ -13,4 +13,4 @@ SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.81.0)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
-Config/Roxido/Version: 25.04.11
+Config/Roxido/Version: 25.04.14
