@@ -1,7 +1,7 @@
 // The 'roxido_registration' macro is called at the start of the 'lib.rs' file.
 roxido_registration!();
 
-mod ghupd;
+mod xhp;
 
 use ahash::AHashMap;
 use rand::prelude::*;

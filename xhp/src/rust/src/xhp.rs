@@ -88,7 +88,7 @@ impl ClusterSizesDistribution {
 
     fn sample<R: Rng>(
         &self,
-        ghupd: &GeneralizedHierarchicalUniformPartitionDistribution,
+        xhp: &ExchangeableHierarchicalPartitionDistribution,
         n_clusters: usize,
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
@@ -141,8 +141,8 @@ impl ClusterSizesDistribution {
                     let max_s = n_items - n_clusters + 1;
                     // For each candidate first cluster size s, compute the weight.
                     for s in 1..=max_s {
-                        let log_weight = ghupd.log_factorial[n_items - 2]
-                            - ghupd.log_factorial[n_items - s]
+                        let log_weight = xhp.log_factorial[n_items - 2]
+                            - xhp.log_factorial[n_items - s]
                             + log_stirling[n_items - s][n_clusters - 1];
                         // Apply the tilt adjustment.
                         lw.push(
@@ -172,7 +172,7 @@ impl ClusterSizesDistribution {
 
     fn log_probability(
         &self,
-        ghupd: &GeneralizedHierarchicalUniformPartitionDistribution,
+        xhp: &ExchangeableHierarchicalPartitionDistribution,
         cluster_sizes: &mut [usize],
     ) -> f64 {
         match self {
@@ -242,8 +242,8 @@ impl ClusterSizesDistribution {
                     let max_s = n_items - n_clusters + 1;
                     // For each candidate first cluster size s, compute the weight.
                     for s in 1..=max_s {
-                        let log_weight = ghupd.log_factorial[n_items - 2]
-                            - ghupd.log_factorial[n_items - s]
+                        let log_weight = xhp.log_factorial[n_items - 2]
+                            - xhp.log_factorial[n_items - s]
                             + log_stirling[n_items - s][n_clusters - 1];
                         // Apply the tilt adjustment.
                         lw.push(
@@ -395,7 +395,7 @@ impl ClusterSizesDistribution {
     }
 }
 
-struct GeneralizedHierarchicalUniformPartitionDistribution {
+struct ExchangeableHierarchicalPartitionDistribution {
     n_items: usize,
     n_clusters_log_probability: Vec<f64>,
     cluster_sizes_distribution: ClusterSizesDistribution,
@@ -404,7 +404,7 @@ struct GeneralizedHierarchicalUniformPartitionDistribution {
     log_factorial: Vec<f64>,
 }
 
-impl GeneralizedHierarchicalUniformPartitionDistribution {
+impl ExchangeableHierarchicalPartitionDistribution {
     fn new(
         n_items: usize,
         n_clusters_log_probability: &[f64],
@@ -448,7 +448,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         })
     }
 
-    /// Sample a partition from the GHUP distribution.
+    /// Sample a partition from the XHP distribution.
     fn sample_partition<R: Rng>(&mut self, rng: &mut R) -> Vec<usize> {
         let n_clusters = self.sample_n_clusters(rng);
         // unwrap is okay since n_clusters came from us.
@@ -456,7 +456,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .unwrap()
     }
 
-    /// Given a cluster size configuration, sample a partition from the GHUP distribution.
+    /// Given a cluster size configuration, sample a partition from the XHP distribution.
     fn sample_partition_given_n_clusters<R: Rng>(
         &mut self,
         n_clusters: usize,
@@ -471,7 +471,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
             .unwrap())
     }
 
-    /// Given a cluster size configuration, sample a partition from the GHUP distribution.
+    /// Given a cluster size configuration, sample a partition from the XHP distribution.
     fn sample_partition_given_cluster_sizes<R: Rng>(
         &self,
         cluster_sizes: &[usize],
@@ -511,7 +511,7 @@ impl GeneralizedHierarchicalUniformPartitionDistribution {
         Ok(result)
     }
 
-    /// Sample a number of clusters from the GHUP distribution.
+    /// Sample a number of clusters from the XHP distribution.
     fn sample_n_clusters<R: Rng>(&self, rng: &mut R) -> usize {
         self.n_clusters_weighted_index.sample(rng)
     }
@@ -588,8 +588,8 @@ pub fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f6
     })
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
+#[roxido(module = xhp)]
+fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
     let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
     let csd_name = csd_name.as_scalar().stop();
     let cluster_sizes_distribution = match csd_name.str(pc) {
@@ -632,38 +632,38 @@ fn ghupd_new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_dis
         e => stop!("Unrecognized cluster size distribution: {}", e),
     };
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
-    let ghupd = GeneralizedHierarchicalUniformPartitionDistribution::new(
+    let xhp = ExchangeableHierarchicalPartitionDistribution::new(
         n_items,
         n_clusters_log_weights.slice(),
         cluster_sizes_distribution,
     )
     .stop();
-    let result = RExternalPtr::encode(ghupd, "ghupd", pc);
-    result.set_class(["ghupd"].to_r(pc));
+    let result = RExternalPtr::encode(xhp, "xhp", pc);
+    result.set_class(["xhp"].to_r(pc));
     result
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_sample_partition(ghupd: &mut RExternalPtr) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn sample_partition(xhp: &mut RExternalPtr) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = ghupd.sample_partition(&mut rng);
+    let partition = xhp.sample_partition(&mut rng);
     partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_sample_partition_given_n_clusters(ghupd: &mut RExternalPtr, n_clusters: usize) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn sample_partition_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = ghupd
+    let partition = xhp
         .sample_partition_given_n_clusters(n_clusters, &mut rng)
         .stop();
     partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_sample_partition_given_cluster_sizes(ghupd: &mut RExternalPtr, cluster_sizes: &RVector) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn sample_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
     let cluster_sizes = cluster_sizes
         .slice()
@@ -671,88 +671,78 @@ fn ghupd_sample_partition_given_cluster_sizes(ghupd: &mut RExternalPtr, cluster_
         .map(|&x| usize::try_from(x).stop())
         .collect::<Vec<_>>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = ghupd
+    let partition = xhp
         .sample_partition_given_cluster_sizes(&cluster_sizes, &mut rng)
         .stop();
     partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_sample_n_clusters(ghupd: &mut RExternalPtr) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn sample_n_clusters(xhp: &mut RExternalPtr) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let cluster_sizes = ghupd.sample_n_clusters(&mut rng);
+    let cluster_sizes = xhp.sample_n_clusters(&mut rng);
     i32::try_from(cluster_sizes).stop()
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_sample_cluster_sizes_given_n_clusters(ghupd: &mut RExternalPtr, n_clusters: usize) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn sample_cluster_sizes_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let cluster_sizes = ghupd
+    let cluster_sizes = xhp
         .cluster_sizes_distribution
-        .sample(ghupd, n_clusters, &mut rng)
+        .sample(xhp, n_clusters, &mut rng)
         .stop();
     cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_log_probability_partition(ghupd: &mut RExternalPtr, partition: &RVector) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn log_probability_partition(xhp: &mut RExternalPtr, partition: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let partition = partition.to_i32(pc);
     let slice = partition.slice();
-    ghupd.log_probability_partition(slice)
+    xhp.log_probability_partition(slice)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_log_probability_partition_using_cluster_sizes(
-    ghupd: &RExternalPtr,
-    cluster_sizes: &RVector,
-) {
-    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn log_probability_partition_using_cluster_sizes(xhp: &RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
     let mut cluster_sizes = cluster_sizes
         .slice()
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
+    xhp.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_log_probability_n_clusters(ghupd: &RExternalPtr, n_clusters: usize) {
-    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
-    ghupd.log_probability_n_clusters(n_clusters)
+#[roxido(module = xhp)]
+fn log_probability_n_clusters(xhp: &RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
+    xhp.log_probability_n_clusters(n_clusters)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_log_probability_cluster_sizes_given_n_clusters(
-    ghupd: &RExternalPtr,
-    cluster_sizes: &RVector,
-) {
-    let ghupd = ghupd.decode_ref::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn log_probability_cluster_sizes_given_n_clusters(xhp: &RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
     let mut cluster_sizes = cluster_sizes
         .slice()
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd
-        .cluster_sizes_distribution
-        .log_probability(ghupd, &mut cluster_sizes)
+    xhp.cluster_sizes_distribution
+        .log_probability(xhp, &mut cluster_sizes)
 }
 
-#[roxido(module = ghupd)]
-fn ghupd_log_probability_partition_given_cluster_sizes(
-    ghupd: &mut RExternalPtr,
-    cluster_sizes: &RVector,
-) {
-    let ghupd = ghupd.decode_mut::<GeneralizedHierarchicalUniformPartitionDistribution>();
+#[roxido(module = xhp)]
+fn log_probability_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
     let cluster_sizes = cluster_sizes.to_i32(pc);
     let cluster_sizes = cluster_sizes
         .slice()
         .iter()
         .map(|&c| usize::try_from(c).stop())
         .collect::<Vec<_>>();
-    ghupd.log_probability_partition_given_cluster_sizes(&cluster_sizes)
+    xhp.log_probability_partition_given_cluster_sizes(&cluster_sizes)
 }
