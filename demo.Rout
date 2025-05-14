@@ -1,6 +1,6 @@
 
-R version 4.4.2 (2024-10-31) -- "Pile of Leaves"
-Copyright (C) 2024 The R Foundation for Statistical Computing
+R version 4.5.0 (2025-04-11) -- "How About a Twenty-Six"
+Copyright (C) 2025 The R Foundation for Statistical Computing
 Platform: x86_64-pc-linux-gnu
 
 R is free software and comes with ABSOLUTELY NO WARRANTY.
@@ -17,7 +17,9 @@ Type 'demo()' for some demos, 'help()' for on-line help, or
 'help.start()' for an HTML browser interface to help.
 Type 'q()' to quit R.
 
-> library(gupd)
+> library(xhp)
+> 
+> # make_gupd
 > 
 > lambda <- 3
 > prob <- dpois(1:5, lambda)
@@ -44,41 +46,358 @@ Type 'q()' to quit R.
 > 
 > system.time(f1 <- make_gupd(prob, n_items, log = TRUE))
    user  system elapsed 
-  1.317   0.000   1.320 
+  1.115   0.000   1.118 
 > o1 <- sapply(k, f1)
 > o1
 [1]  -693152.6 -1609436.4 -2995696.2 -3401138.3 -3911917.9
 > 
-> sessionInfo()
-R version 4.4.2 (2024-10-31)
-Platform: x86_64-pc-linux-gnu
-Running under: Fedora Linux 40 (Workstation Edition)
+> 
+> # Uniform
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "uniform"))
+> 
+> sum(sapply(1:5, \(x) {
++   exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x)))
++ })) # Should be 1
+[1] 1
+> 
+> 
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1)))
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(8, 2)))
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(7, 3)))
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(6, 4)))
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5)))
+[1] 0.2
+> 
+> 
+> exp(ghupd_log_probability_n_clusters(distr, 2))
+[1] 0.25
+> 
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1)))
+[1] 0.2
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5))
+[1] -1.609438
+> 
+> 
+> 
+> 
+> distr <- ghupd_new(10, log(c(0.20, 0.30, 0.10, 0.25, 0.15)), list(method = "uniform"))
+> 
+> x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
+> x / sum(x)  # Should match weights above
 
-Matrix products: default
-BLAS:   /home/dahl/.local/R/4.4.2-latest/lib64/R/lib/libRblas.so 
-LAPACK: /home/dahl/.local/R/4.4.2-latest/lib64/R/lib/libRlapack.so;  LAPACK version 3.12.0
+     1      2      3      4      5 
+0.1908 0.2975 0.1069 0.2492 0.1556 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1, 1)), list(method = "uniform"))
+> 
+> x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
+> x / sum(x)  # Should be uniform
 
-locale:
- [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
- [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
- [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
- [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
- [9] LC_ADDRESS=C               LC_TELEPHONE=C            
-[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+     1      2      3      4      5 
+0.2040 0.2056 0.1960 0.2012 0.1932 
+> 
+> # Should be an error
+> tryCatch(ghupd_sample_cluster_sizes_given_n_clusters(distr, 0), error = \(x) x)
+<simpleError in ghupd_sample_cluster_sizes_given_n_clusters(distr, 0): 'n_clusters' is out of bounds>
+> ghupd_sample_cluster_sizes_given_n_clusters(distr, 5)
+[1] 3 3 2 1 1
+> tryCatch(ghupd_sample_cluster_sizes_given_n_clusters(distr, 6), error = \(x) x)
+<simpleError in ghupd_sample_cluster_sizes_given_n_clusters(distr, 6): 'n_clusters' is out of bounds>
+> 
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 2))), collapse="")))
+> x / sum(x)  # Should be uniform
 
-time zone: America/Denver
-tzcode source: system (glibc)
+    55     64     73     82     91 
+0.2030 0.2021 0.1975 0.1993 0.1981 
+> 
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)  # Should be uniform
 
-attached base packages:
-[1] stats     graphics  grDevices utils     datasets  methods   base     
+   433    442    532    541    622    631    721    811 
+0.1221 0.1335 0.1213 0.1289 0.1221 0.1248 0.1231 0.1242 
+> 
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
+> x / sum(x)  # Should be uniform
 
-other attached packages:
-[1] gupd_0.1.2
+  3322   3331   4222   4321   4411   5221   5311   6211   7111 
+0.1130 0.1106 0.1119 0.1099 0.1081 0.1098 0.1156 0.1133 0.1078 
+> 
+> sum(sapply(seq_len(1000), \(x) length(unique(ghupd_sample_partition_given_n_clusters(distr, 4)))) != 4) # Should be zero
+[1] 0
+> 
+> sum(sapply(seq_len(1000), \(x) length(unique(ghupd_sample_partition_given_n_clusters(distr, 3)))) != 3) # Should be zero
+[1] 0
+> 
+> rev(sort(table(ghupd_sample_partition_given_cluster_sizes(distr, c(6, 4)))))
 
-loaded via a namespace (and not attached):
-[1] compiler_4.4.2 salso_0.3.48  
+2 1 
+6 4 
+> 
+> # Should be an error
+> tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1, 1, 1, 1, 1)), error = \(x) x)
+<simpleError in ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1, 1,     1, 1, 1)): 'cluster_sizes' implies more clusters than specified>
+> 
+> tryCatch(ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1)), error = \(x) x)
+<simpleError in ghupd_sample_partition_given_cluster_sizes(distr, c(4, 1)): 'cluster_sizes' implies the wrong number of items>
+> 
+> distr <- ghupd_new(10, log(c(1)), list(method = "uniform"))
+> tryCatch(ghupd_new(10, numeric(0), list(method = "uniform")), error = \(x) x)
+<simpleError in ghupd_new(10, numeric(0), list(method = "uniform")): There must be at least one cluster>
+> tryCatch(ghupd_new(10, -Inf, list(method = "uniform")), error = \(x) x)
+<simpleError in ghupd_new(10, -Inf, list(method = "uniform")): Invalid distribution for the number of clusters>
+> x <- table(sapply(seq_len(10000), \(x) ghupd_sample_n_clusters(distr)))
+> x / sum(x)  # Should be one
+
+1 
+1 
+> 
+> distr <- ghupd_new(10, rep(1, 5), list(method = "uniform"))
+> exp(ghupd_log_probability_n_clusters(distr, 0)) # Should be zero
+[1] 0
+> exp(ghupd_log_probability_n_clusters(distr, 1)) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_n_clusters(distr, 5)) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_n_clusters(distr, 6)) # Should be zero
+[1] 0
+> 
+> exp(-ghupd_log_probability_partition_given_cluster_sizes(distr, c(5, 3, 2))) # Should be 2520
+[1] 2520
+> exp(-ghupd_log_probability_partition_given_cluster_sizes(distr, c(5, 3, 1))) # Should be zero
+[1] Inf
+> 
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 3, 2)) # Should be the same
+[1] -2.079442
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(6, 3, 1)) # Should be the same
+[1] -2.079442
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(7, 2, 1)) # Should be the same
+[1] -2.079442
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(4, 3, 3)) # Should be the same
+[1] -2.079442
+> 
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5))) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(6, 4))) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(7, 3))) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(8, 2))) # Should be 0.2
+[1] 0.2
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1))) # Should be 0.2
+[1] 0.2
+> 
+> distr <- ghupd_new(5, c(1, 1, 1, 1, 1), list(method = "uniform"))
+> cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes))
+[1] 0.5
+> 
+> n_items <- 10
+> distr <- ghupd_new(n_items, c(1, 1, 1, 1), list(method = "uniform"))
+> partitions <- salso::enumerate.partitions(n_items)
+> x <- apply(partitions, 1, \(p) exp(ghupd_log_probability_partition(distr, p)))
+> sum(x == 0.0)
+[1] 72028
+> sum(x != 0.0)
+[1] 43947
+> sum(x) # Should be 1
+[1] 1
+> 
+> n_items <- 10
+> distr <- ghupd_new(n_items, rep(1, n_items), list(method = "uniform"))
+> partitions <- salso::enumerate.partitions(n_items)
+> x <- apply(partitions, 1, \(p) exp(ghupd_log_probability_partition(distr, p)))
+> sum(x == 0.0)
+[1] 0
+> sum(x != 0.0)
+[1] 115975
+> sum(x) # Should be 1
+[1] 1
+> 
+> 
+> # Tilted Uniform
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 0.0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)  # Should be uniform
+
+   433    442    532    541    622    631    721    811 
+0.1305 0.1299 0.1266 0.1222 0.1205 0.1277 0.1214 0.1212 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 0.5))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   433    442    532    541    622    631    721    811 
+0.3826 0.2877 0.1820 0.0782 0.0388 0.0272 0.0032 0.0003 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -0.5))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   433    442    532    541    622    631    721    811 
+0.0150 0.0113 0.0190 0.0018 0.0757 0.0050 0.0406 0.8316 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 2.0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   433    442    532    541 
+0.9017 0.0855 0.0126 0.0002 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -2.0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   622    811 
+0.0004 0.9996 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 20.0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+433 
+  1 
+> 
+> distr <- ghupd_new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -20.0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+811 
+  1 
+> 
+> 
+> distr <- ghupd_new(10, rep(1, 5), list(method = "tilted_uniform", tilt = 0.5))
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(5, 5)))
+[1] 0.5703497
+> exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(9, 1)))
+[1] 0.000191331
+> 
+> sum(sapply(1:5, \(x) {
++   exp(ghupd_log_probability_cluster_sizes_given_n_clusters(distr, c(10 - x, x)))
++ })) # Should be 1
+[1] 1
+> 
+> 
+> 
+> # CRP
+> 
+> distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 2.0))
+> x <- table(sapply(seq_len(20000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
+> x / sum(x)
+
+   3222    3321    4221    4311    5211    6111 
+0.03825 0.14785 0.16960 0.22465 0.26690 0.15275 
+> 
+> 
+> library(gourd)
+> n_items <- 9
+> concentration <- 2
+> crp <- CRPPartition(nItems = n_items, concentration = concentration)
+> x <- samplePartition(crp, 100000)
+> w <- apply(x, 1, \(y) length(unique(y))) == 4
+> mean(w)
+[1] 0.29742
+> z <- table(apply(x[w,], 1, \(y) paste0(rev(sort(table(y))), collapse="")))
+> z / sum(z)
+
+      3222       3321       4221       4311       5211       6111 
+0.03735458 0.15062874 0.17002892 0.22557326 0.26807209 0.14834241 
+> 
+> 
+> # Tilted CRP
+> 
+> distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 0))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   333    432    441    522    531    621    711 
+0.0191 0.1266 0.0933 0.0721 0.2139 0.2564 0.2186 
+> 
+> distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 1.0, discount = 0.3))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   333    432    441    522    531    621    711 
+0.0193 0.1255 0.0964 0.0780 0.2051 0.2554 0.2203 
+> 
+> distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 2))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+   333    432    441    522    531 
+0.5963 0.3963 0.0042 0.0029 0.0003 
+> 
+> distr <- ghupd_new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20))
+> x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(ghupd_sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+> x / sum(x)
+
+333 
+  1 
+> 
+> 
+> 
+> 
+> distr <- ghupd_new(1000000, rep(1, 100), list(method = "uniform"))
+> cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
+[1] -289.0199
+> print(system.time(sampled_partitions <- sapply(seq_len(1000), \(x) ghupd_sample_partition(distr))))
+   user  system elapsed 
+ 22.520   2.671  25.326 
+> dim(sampled_partitions)
+[1] 1000000    1000
+> print(system.time(apply(sampled_partitions, 2, \(partition) ghupd_log_probability_partition(distr, partition))))
+   user  system elapsed 
+ 19.704   1.712  21.544 
+> 
+> 
+> distr <- ghupd_new(1000000, rep(1, 100), list(method = "crp", concentration = 1.0))
+> cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
+> ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
+[1] -69.43349
+> print(system.time(sampled_partitions <- sapply(seq_len(1000), \(x) ghupd_sample_partition(distr))))
+   user  system elapsed 
+ 82.377   2.326  85.193 
+> dim(sampled_partitions)
+[1] 1000000    1000
+> print(system.time(apply(sampled_partitions, 2, \(partition) ghupd_log_probability_partition(distr, partition))))
+   user  system elapsed 
+ 36.981   2.168  39.374 
+> 
+> 
+> engine <- function(cluster_sizes_distribution) {
++   distr <- ghupd_new(50000, rep(1, 25), cluster_sizes_distribution = cluster_sizes_distribution)
++   cluster_sizes <- rev(sort(table(ghupd_sample_partition(distr))))
++   ghupd_log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
++   sampled_partitions <- sapply(seq_len(1000), \(x) ghupd_sample_partition(distr))
++   dim(sampled_partitions)
++   apply(sampled_partitions, 2, \(partition) ghupd_log_probability_partition(distr, partition))
++ }
+> 
+> microbenchmark::microbenchmark(
++   engine(list(method = "uniform")),
++   engine(list(method = "tilted_uniform", tilt = 0.0000000000001)),
++   engine(list(method = "crp", concentration = 1.0)),
++   engine(list(method = "tilted_crp", concentration = 1.0, tilt = 0.0000000000001)),
++ times = 5)
+Unit: seconds
+                                                                 expr      min
+                                     engine(list(method = "uniform")) 1.372879
+                engine(list(method = "tilted_uniform", tilt = 1e-13)) 1.361823
+                      engine(list(method = "crp", concentration = 1)) 2.336208
+ engine(list(method = "tilted_crp", concentration = 1, tilt = 1e-13)) 2.265204
+       lq     mean   median       uq      max neval
+ 1.438649 1.506440 1.568677 1.575045 1.576951     5
+ 1.372620 1.565639 1.635462 1.723355 1.734936     5
+ 2.401403 2.468709 2.486920 2.497267 2.621745     5
+ 2.423552 2.427810 2.437519 2.448131 2.564646     5
 > 
 > 
 > proc.time()
    user  system elapsed 
-  4.498   0.092   4.655 
+212.973  13.558 227.555 
