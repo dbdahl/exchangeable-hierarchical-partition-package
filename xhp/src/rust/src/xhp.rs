@@ -18,7 +18,6 @@ enum ClusterSizesDistribution {
     },
     TiltedCRP {
         n_items: usize,
-        _concentration: f64,
         log_stirling: Vec<Vec<f64>>,
         tilt: f64,
     },
@@ -39,11 +38,10 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn new_crp(n_items: usize, max_n_clusters: usize, concentration: f64) -> Self {
+    fn new_crp(n_items: usize, max_n_clusters: usize) -> Self {
         let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
         Self::TiltedCRP {
             n_items,
-            _concentration: concentration,
             log_stirling,
             tilt: 0.0,
         }
@@ -71,12 +69,10 @@ impl ClusterSizesDistribution {
             },
             Self::TiltedCRP {
                 n_items,
-                _concentration,
                 log_stirling,
                 ..
             } => Self::TiltedCRP {
                 n_items,
-                _concentration,
                 log_stirling,
                 tilt,
             },
@@ -607,7 +603,7 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
                 .stop();
             let concentration = concentration.as_scalar().stop();
             let concentration = concentration.f64();
-            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len(), concentration)
+            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
         }
         "tilted_crp" => {
             let concentration = cluster_sizes_distribution
@@ -618,7 +614,7 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len(), concentration)
+            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
                 .update_tilt(tilt)
         }
         "tilted_beta_binomial" => {
