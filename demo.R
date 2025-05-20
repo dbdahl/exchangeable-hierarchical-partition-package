@@ -190,6 +190,7 @@ z <- table(apply(x[w,], 1, \(y) paste0(rev(sort(table(y))), collapse="")))
 z / sum(z)
 
 
+
 # Tilted CRP
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 0))
@@ -207,7 +208,6 @@ x / sum(x)
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20))
 x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 x / sum(x)
-
 
 
 

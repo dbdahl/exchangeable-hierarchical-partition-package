@@ -9,6 +9,32 @@ use rand_pcg::Pcg64Mcg;
 use statrs::function::gamma::ln_gamma;
 use std::hash::Hash;
 
+#[allow(dead_code)]
+enum NumberOfClustersDistribution {
+    General {
+        log_probability: Vec<f64>,
+        weighted_index: WeightedIndex<f64>,
+    },
+    Crp {
+        concentration: f64,
+        discount: f64,
+    },
+    Binomial {
+        number_of_trials: u32,
+        probability: f64,
+    },
+    TruncatedPoisson {
+        max: u32,
+        rate: f64,
+    },
+    TruncatedNegativeBinomial {
+        number_of_trials: u32,
+        probability: f64,
+        number_of_successes: u32,
+    },
+}
+
+#[allow(dead_code)]
 enum ClusterSizesDistribution {
     TiltedUniform {
         n_items: usize,
@@ -22,8 +48,8 @@ enum ClusterSizesDistribution {
         tilt: f64,
     },
     TiltedBetaBinomial {
-        _alpha: f64,
-        _beta: f64,
+        alpha: f64,
+        beta: f64,
     },
 }
 
@@ -47,10 +73,14 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn new_beta_binomial(alpha: f64, beta: f64) -> Self {
-        Self::TiltedBetaBinomial {
-            _alpha: alpha,
-            _beta: beta,
+    fn new_beta_binomial(alpha: f64, beta: f64) -> Result<Self, &'static str> {
+        if alpha <= 0.0 || beta <= 0.0 {
+            Err("alpha and beta must be greater than zero.")
+        } else {
+            Ok(Self::TiltedBetaBinomial {
+                alpha: alpha,
+                beta: beta,
+            })
         }
     }
 
@@ -391,55 +421,93 @@ impl ClusterSizesDistribution {
     }
 }
 
+impl NumberOfClustersDistribution {
+    fn new_general(log_probability: &[f64]) -> Result<Self, &'static str> {
+        if log_probability.is_empty() {
+            return Err("There must be at least one cluster");
+        }
+        let max_log = log_probability
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum_exp: f64 = log_probability.iter().map(|&x| (x - max_log).exp()).sum();
+        let log_sum_exp = max_log + sum_exp.ln();
+        let log_probability = std::iter::once(f64::NEG_INFINITY)
+            .chain(log_probability.iter().map(|&x| x - log_sum_exp))
+            .collect::<Vec<_>>();
+        let probability = log_probability.iter().map(|&x| x.exp()).collect::<Vec<_>>();
+        let Ok(weighted_index) = WeightedIndex::new(&probability) else {
+            return Err("Invalid distribution for the number of clusters");
+        };
+        Ok(Self::General {
+            log_probability,
+            weighted_index,
+        })
+    }
+
+    #[allow(dead_code)]
+    fn new_crp(concentration: f64, discount: f64) -> Result<Self, &'static str> {
+        if discount < 0.0 || discount >= 1.0 {
+            return Err("The discount parameter must be in [0,1).");
+        }
+        if concentration <= -discount {
+            return Err("The concentration parameter must be greater than the discount parameter.");
+        }
+        Ok(Self::Crp {
+            concentration,
+            discount,
+        })
+    }
+
+    fn max(&self) -> usize {
+        match self {
+            Self::General {
+                log_probability, ..
+            } => log_probability.len() - 1,
+            _ => panic!("Not yet implemented."),
+        }
+    }
+
+    fn sample<R: Rng>(&self, rng: &mut R) -> usize {
+        match self {
+            Self::General { weighted_index, .. } => weighted_index.sample(rng),
+            _ => panic!("Not yet implemented."),
+        }
+    }
+
+    fn log_probability(&self, n_clusters: usize) -> f64 {
+        match self {
+            Self::General {
+                log_probability, ..
+            } => *log_probability
+                .get(n_clusters)
+                .unwrap_or(&f64::NEG_INFINITY),
+            _ => panic!("Not yet implemented."),
+        }
+    }
+}
+
 struct ExchangeableHierarchicalPartitionDistribution {
     n_items: usize,
-    n_clusters_log_probability: Vec<f64>,
+    n_clusters_distribution: NumberOfClustersDistribution,
     cluster_sizes_distribution: ClusterSizesDistribution,
-    max_n_clusters: usize,
-    n_clusters_weighted_index: WeightedIndex<f64>,
     log_factorial: Vec<f64>,
 }
 
 impl ExchangeableHierarchicalPartitionDistribution {
     fn new(
         n_items: usize,
-        n_clusters_log_probability: &[f64],
+        n_clusters_distribution: NumberOfClustersDistribution,
         cluster_sizes_distribution: ClusterSizesDistribution,
     ) -> Result<Self, &'static str> {
-        if n_clusters_log_probability.is_empty() {
-            return Err("There must be at least one cluster");
-        }
-        let max_log = n_clusters_log_probability
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let sum_exp: f64 = n_clusters_log_probability
-            .iter()
-            .map(|&x| (x - max_log).exp())
-            .sum();
-        let log_sum_exp = max_log + sum_exp.ln();
-        let n_clusters_log_probability = std::iter::once(f64::NEG_INFINITY)
-            .chain(n_clusters_log_probability.iter().map(|&x| x - log_sum_exp))
-            .collect::<Vec<_>>();
-        let max_n_clusters = n_clusters_log_probability.len() - 1;
-        let n_clusters_probability = n_clusters_log_probability
-            .iter()
-            .map(|&x| x.exp())
-            .collect::<Vec<_>>();
-        // unwrap since n_clusters_probabilities are known to be okay.
-        let Ok(n_clusters_weighted_index) = WeightedIndex::new(&n_clusters_probability) else {
-            return Err("Invalid distribution for the number of clusters");
-        };
         let mut log_factorial = Vec::with_capacity(n_items + 1);
         for i in 0..=n_items {
             log_factorial.push(ln_gamma((i as f64) + 1.0));
         }
         Ok(Self {
             n_items,
-            n_clusters_log_probability,
+            n_clusters_distribution,
             cluster_sizes_distribution,
-            max_n_clusters,
-            n_clusters_weighted_index,
             log_factorial,
         })
     }
@@ -474,7 +542,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
         let n_clusters = cluster_sizes.len();
-        if n_clusters > self.max_n_clusters {
+        if n_clusters > self.n_clusters_distribution.max() {
             return Err("'cluster_sizes' implies more clusters than specified");
         }
         let n_items = cluster_sizes.iter().sum::<usize>();
@@ -509,7 +577,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
 
     /// Sample a number of clusters from the XHP distribution.
     fn sample_n_clusters<R: Rng>(&self, rng: &mut R) -> usize {
-        self.n_clusters_weighted_index.sample(rng)
+        self.n_clusters_distribution.sample(rng)
     }
 
     /// Log probability of a partition
@@ -528,10 +596,10 @@ impl ExchangeableHierarchicalPartitionDistribution {
     }
 
     fn log_probability_n_clusters(&self, n_clusters: usize) -> f64 {
-        if n_clusters > self.max_n_clusters {
+        if n_clusters > self.n_clusters_distribution.max() {
             f64::NEG_INFINITY
         } else {
-            self.n_clusters_log_probability[n_clusters]
+            self.n_clusters_distribution.log_probability(n_clusters)
         }
     }
 
@@ -568,22 +636,6 @@ where
     cluster_sizes
 }
 
-pub fn entropy_from_partition<'a, I, T: 'a + Eq + Hash + Copy>(partition: I) -> f64
-where
-    I: ExactSizeIterator<Item = &'a T>,
-{
-    let n_items = partition.len();
-    entropy_from_cluster_sizes(&compute_cluster_sizes(partition), n_items)
-}
-
-pub fn entropy_from_cluster_sizes(cluster_sizes: &[usize], n_items: usize) -> f64 {
-    let n_items = n_items as f64;
-    cluster_sizes.iter().fold(0.0, |s, &x| {
-        let p = (x as f64) / n_items;
-        s - p * p.ln()
-    })
-}
-
 #[roxido(module = xhp)]
 fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
     let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
@@ -597,20 +649,8 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
             ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len())
                 .update_tilt(tilt)
         }
-        "crp" => {
-            let concentration = cluster_sizes_distribution
-                .get_by_key("concentration")
-                .stop();
-            let concentration = concentration.as_scalar().stop();
-            let concentration = concentration.f64();
-            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
-        }
+        "crp" => ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len()),
         "tilted_crp" => {
-            let concentration = cluster_sizes_distribution
-                .get_by_key("concentration")
-                .stop();
-            let concentration = concentration.as_scalar().stop();
-            let concentration = concentration.f64();
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
@@ -621,16 +661,22 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
             let get_f64 = |name: &str| -> f64 {
                 let x = cluster_sizes_distribution.get_by_key(name).stop();
                 let x = x.as_scalar().stop();
-                x.f64()
+                let x = x.f64();
+                if x <= 0.0 {
+                    stop!("'{}' must be greater than 0.0 but is {}.", name, x)
+                }
+                x
             };
-            ClusterSizesDistribution::new_beta_binomial(get_f64("alpha"), get_f64("beta"))
+            ClusterSizesDistribution::new_beta_binomial(get_f64("alpha"), get_f64("beta")).stop()
         }
         e => stop!("Unrecognized cluster size distribution: {}", e),
     };
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
+    let n_clusters_distribution =
+        NumberOfClustersDistribution::new_general(n_clusters_log_weights.slice()).stop();
     let xhp = ExchangeableHierarchicalPartitionDistribution::new(
         n_items,
-        n_clusters_log_weights.slice(),
+        n_clusters_distribution,
         cluster_sizes_distribution,
     )
     .stop();
