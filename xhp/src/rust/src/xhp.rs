@@ -12,23 +12,26 @@ use std::hash::Hash;
 #[allow(dead_code)]
 enum NumberOfClustersDistribution {
     General {
+        max: usize,
         log_probability: Vec<f64>,
         weighted_index: WeightedIndex<f64>,
     },
     Crp {
+        max: usize,
         concentration: f64,
         discount: f64,
     },
     Binomial {
+        max: usize,
         number_of_trials: u32,
         probability: f64,
     },
     TruncatedPoisson {
-        max: u32,
+        max: usize,
         rate: f64,
     },
     TruncatedNegativeBinomial {
-        number_of_trials: u32,
+        max: usize,
         probability: f64,
         number_of_successes: u32,
     },
@@ -440,13 +443,18 @@ impl NumberOfClustersDistribution {
             return Err("Invalid distribution for the number of clusters");
         };
         Ok(Self::General {
+            max: log_probability.len() - 1,
             log_probability,
             weighted_index,
         })
     }
 
     #[allow(dead_code)]
-    fn new_crp(concentration: f64, discount: f64) -> Result<Self, &'static str> {
+    fn new_crp(
+        concentration: f64,
+        discount: f64,
+        max_n_clusters: usize,
+    ) -> Result<Self, &'static str> {
         if discount < 0.0 || discount >= 1.0 {
             return Err("The discount parameter must be in [0,1).");
         }
@@ -454,6 +462,7 @@ impl NumberOfClustersDistribution {
             return Err("The concentration parameter must be greater than the discount parameter.");
         }
         Ok(Self::Crp {
+            max: max_n_clusters,
             concentration,
             discount,
         })
@@ -461,10 +470,11 @@ impl NumberOfClustersDistribution {
 
     fn max(&self) -> usize {
         match self {
-            Self::General {
-                log_probability, ..
-            } => log_probability.len() - 1,
-            _ => panic!("Not yet implemented."),
+            Self::General { max, .. } => *max,
+            Self::Crp { max, .. } => *max,
+            Self::Binomial { max, .. } => *max,
+            Self::TruncatedPoisson { max, .. } => *max,
+            Self::TruncatedNegativeBinomial { max, .. } => *max,
         }
     }
 
