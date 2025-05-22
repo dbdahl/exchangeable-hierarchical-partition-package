@@ -18,22 +18,23 @@ enum NumberOfClustersDistribution {
     },
     Crp {
         max: usize,
+        n_items: usize,
         concentration: f64,
         discount: f64,
     },
     Binomial {
         max: usize,
-        number_of_trials: u32,
+        n_trials: usize,
         probability: f64,
     },
-    TruncatedPoisson {
+    Poisson {
         max: usize,
         rate: f64,
     },
-    TruncatedNegativeBinomial {
+    NegativeBinomial {
         max: usize,
+        n_successes: usize,
         probability: f64,
-        number_of_successes: u32,
     },
 }
 
@@ -51,67 +52,231 @@ enum ClusterSizesDistribution {
         tilt: f64,
     },
     TiltedBetaBinomial {
+        n_items: usize,
         alpha: f64,
         beta: f64,
     },
 }
 
+impl NumberOfClustersDistribution {
+    fn new_general(log_probability: &[f64]) -> Result<Self, &'static str> {
+        if log_probability.is_empty() {
+            return Err("There must be at least one cluster.");
+        }
+        let max_log = log_probability
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum_exp: f64 = log_probability.iter().map(|&x| (x - max_log).exp()).sum();
+        let log_sum_exp = max_log + sum_exp.ln();
+        let log_probability = std::iter::once(f64::NEG_INFINITY)
+            .chain(log_probability.iter().map(|&x| x - log_sum_exp))
+            .collect::<Vec<_>>();
+        let probability = log_probability.iter().map(|&x| x.exp()).collect::<Vec<_>>();
+        let Ok(weighted_index) = WeightedIndex::new(&probability) else {
+            return Err("Invalid distribution for the number of clusters.");
+        };
+        let max = log_probability.len() - 1;
+        Ok(Self::General {
+            max,
+            log_probability,
+            weighted_index,
+        })
+    }
+
+    #[allow(dead_code)]
+    fn new_crp(
+        max_n_clusters: usize,
+        n_items: usize,
+        concentration: f64,
+        discount: f64,
+    ) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if n_items == 0 {
+            return Err("The maximum number of items must be greater than 0.");
+        }
+        let max = max_n_clusters.min(n_items);
+        if discount < 0.0 || discount >= 1.0 {
+            return Err("The discount parameter must be in [0,1).");
+        }
+        if concentration <= -discount {
+            return Err("The concentration parameter must be greater than the negation of the discount parameter.");
+        }
+        Ok(Self::Crp {
+            max,
+            n_items,
+            concentration,
+            discount,
+        })
+    }
+
+    #[allow(dead_code)]
+    fn new_binomial(
+        max_n_clusters: usize,
+        n_trials: usize,
+        probability: f64,
+    ) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if probability <= 0.0 || probability => 1.0 {
+            return Err("The probability parameter must be in [0,1].");
+        }
+        let max = max_n_clusters.min(n_trials);
+        Ok(Self::Binomial {
+            max,
+            n_trials,
+            probability,
+        })
+    }
+
+    #[allow(dead_code)]
+    fn new_poisson(max_n_clusters: usize, rate: f64) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if rate <= 0.0 {
+            return Err("The rate parameter must be in greater than 0.0.");
+        }
+        Ok(Self::Poisson {
+            max: max_n_clusters,
+            rate,
+        })
+    }
+
+    #[allow(dead_code)]
+    fn new_negative_binomial(
+        max_n_clusters: usize,
+        n_successes: usize,
+        probability: f64,
+    ) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if n_successes == 0 {
+            return Err("The number of success must be greater than 0.");
+        }
+        if probability <= 0.0 || probability >= 1.0 {
+            return Err("The probability parameter must be in [0,1].");
+        }
+        Ok(Self::NegativeBinomial {
+            max: max_n_clusters,
+            n_successes,
+            probability,
+        })
+    }
+
+    fn max(&self) -> usize {
+        match self {
+            Self::General { max, .. } => *max,
+            Self::Crp { max, .. } => *max,
+            Self::Binomial { max, .. } => *max,
+            Self::Poisson { max, .. } => *max,
+            Self::NegativeBinomial { max, .. } => *max,
+        }
+    }
+
+    fn sample<R: Rng>(&self, rng: &mut R) -> usize {
+        match self {
+            Self::General { weighted_index, .. } => weighted_index.sample(rng),
+            _ => panic!("Not yet implemented."),
+        }
+    }
+
+    fn log_probability(&self, n_clusters: usize) -> f64 {
+        match self {
+            Self::General {
+                log_probability, ..
+            } => *log_probability
+                .get(n_clusters)
+                .unwrap_or(&f64::NEG_INFINITY),
+            _ => panic!("Not yet implemented."),
+        }
+    }
+}
+
 impl ClusterSizesDistribution {
-    fn new_uniform(n_items: usize, max_n_clusters: usize) -> Self {
+    fn new_uniform(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if n_items == 0 {
+            return Err("The maximum number of items must be greater than 0.");
+        }
+        let max_n_clusters = max_n_clusters.min(n_items);
         let table = Self::precompute_uniform_size_configurations_table(n_items, max_n_clusters);
-        Self::TiltedUniform {
+        Ok(Self::TiltedUniform {
             n_items,
             max_n_clusters,
             table,
             tilt: 0.0,
-        }
+        })
     }
 
-    fn new_crp(n_items: usize, max_n_clusters: usize) -> Self {
+    fn new_crp(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
+        if max_n_clusters == 0 {
+            return Err("The maximum number of clusters must be greater than 0.");
+        }
+        if n_items == 0 {
+            return Err("The maximum number of items must be greater than 0.");
+        }
+        let max_n_clusters = max_n_clusters.min(n_items);
         let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
-        Self::TiltedCRP {
+        Ok(Self::TiltedCRP {
             n_items,
             log_stirling,
             tilt: 0.0,
-        }
+        })
     }
 
-    fn new_beta_binomial(alpha: f64, beta: f64) -> Result<Self, &'static str> {
+    fn new_beta_binomial(n_items: usize, alpha: f64, beta: f64) -> Result<Self, &'static str> {
+        if n_items == 0 {
+            return Err("Number of items must be at least 1.");
+        }
         if alpha <= 0.0 || beta <= 0.0 {
             Err("alpha and beta must be greater than zero.")
         } else {
             Ok(Self::TiltedBetaBinomial {
-                alpha: alpha,
-                beta: beta,
+                n_items,
+                alpha,
+                beta,
             })
         }
     }
 
-    fn update_tilt(self, tilt: f64) -> Self {
+    fn update_tilt(self, tilt: f64) -> Result<Self, &'static str> {
         match self {
             Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 table,
                 ..
-            } => Self::TiltedUniform {
+            } => Ok(Self::TiltedUniform {
                 n_items,
                 max_n_clusters,
                 table,
                 tilt,
-            },
+            }),
             Self::TiltedCRP {
                 n_items,
                 log_stirling,
                 ..
-            } => Self::TiltedCRP {
+            } => Ok(Self::TiltedCRP {
                 n_items,
                 log_stirling,
                 tilt,
-            },
-            _ => {
-                panic!("Not appropriate for this variant of SizeConfigurationDistribution enum.")
-            }
+            }),
+            _ => Err("Not appropriate for this variant of SizeConfigurationDistribution enum."),
+        }
+    }
+
+    fn n_items(&self) -> usize {
+        match self {
+            Self::TiltedUniform { n_items, .. } => *n_items,
+            Self::TiltedCRP { n_items, .. } => *n_items,
+            Self::TiltedBetaBinomial { n_items, .. } => *n_items,
         }
     }
 
@@ -195,7 +360,7 @@ impl ClusterSizesDistribution {
                 result.sort_unstable_by(|a, b| b.cmp(a));
                 Ok(result)
             }
-            Self::TiltedBetaBinomial { .. } => Ok(vec![0]),
+            Self::TiltedBetaBinomial { .. } => Err("Not yet implemented."),
         }
     }
 
@@ -424,81 +589,7 @@ impl ClusterSizesDistribution {
     }
 }
 
-impl NumberOfClustersDistribution {
-    fn new_general(log_probability: &[f64]) -> Result<Self, &'static str> {
-        if log_probability.is_empty() {
-            return Err("There must be at least one cluster");
-        }
-        let max_log = log_probability
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let sum_exp: f64 = log_probability.iter().map(|&x| (x - max_log).exp()).sum();
-        let log_sum_exp = max_log + sum_exp.ln();
-        let log_probability = std::iter::once(f64::NEG_INFINITY)
-            .chain(log_probability.iter().map(|&x| x - log_sum_exp))
-            .collect::<Vec<_>>();
-        let probability = log_probability.iter().map(|&x| x.exp()).collect::<Vec<_>>();
-        let Ok(weighted_index) = WeightedIndex::new(&probability) else {
-            return Err("Invalid distribution for the number of clusters");
-        };
-        Ok(Self::General {
-            max: log_probability.len() - 1,
-            log_probability,
-            weighted_index,
-        })
-    }
-
-    #[allow(dead_code)]
-    fn new_crp(
-        concentration: f64,
-        discount: f64,
-        max_n_clusters: usize,
-    ) -> Result<Self, &'static str> {
-        if discount < 0.0 || discount >= 1.0 {
-            return Err("The discount parameter must be in [0,1).");
-        }
-        if concentration <= -discount {
-            return Err("The concentration parameter must be greater than the discount parameter.");
-        }
-        Ok(Self::Crp {
-            max: max_n_clusters,
-            concentration,
-            discount,
-        })
-    }
-
-    fn max(&self) -> usize {
-        match self {
-            Self::General { max, .. } => *max,
-            Self::Crp { max, .. } => *max,
-            Self::Binomial { max, .. } => *max,
-            Self::TruncatedPoisson { max, .. } => *max,
-            Self::TruncatedNegativeBinomial { max, .. } => *max,
-        }
-    }
-
-    fn sample<R: Rng>(&self, rng: &mut R) -> usize {
-        match self {
-            Self::General { weighted_index, .. } => weighted_index.sample(rng),
-            _ => panic!("Not yet implemented."),
-        }
-    }
-
-    fn log_probability(&self, n_clusters: usize) -> f64 {
-        match self {
-            Self::General {
-                log_probability, ..
-            } => *log_probability
-                .get(n_clusters)
-                .unwrap_or(&f64::NEG_INFINITY),
-            _ => panic!("Not yet implemented."),
-        }
-    }
-}
-
 struct ExchangeableHierarchicalPartitionDistribution {
-    n_items: usize,
     n_clusters_distribution: NumberOfClustersDistribution,
     cluster_sizes_distribution: ClusterSizesDistribution,
     log_factorial: Vec<f64>,
@@ -506,16 +597,15 @@ struct ExchangeableHierarchicalPartitionDistribution {
 
 impl ExchangeableHierarchicalPartitionDistribution {
     fn new(
-        n_items: usize,
         n_clusters_distribution: NumberOfClustersDistribution,
         cluster_sizes_distribution: ClusterSizesDistribution,
     ) -> Result<Self, &'static str> {
+        let n_items = cluster_sizes_distribution.n_items();
         let mut log_factorial = Vec::with_capacity(n_items + 1);
         for i in 0..=n_items {
             log_factorial.push(ln_gamma((i as f64) + 1.0));
         }
         Ok(Self {
-            n_items,
             n_clusters_distribution,
             cluster_sizes_distribution,
             log_factorial,
@@ -556,7 +646,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
             return Err("'cluster_sizes' implies more clusters than specified");
         }
         let n_items = cluster_sizes.iter().sum::<usize>();
-        if n_items != self.n_items {
+        if n_items != self.cluster_sizes_distribution.n_items() {
             return Err("'cluster_sizes' implies the wrong number of items");
         }
         let mut permutation: Vec<_> = (0..n_items).collect();
@@ -615,7 +705,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
 
     fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
         let n_items = cluster_sizes.iter().sum::<usize>();
-        if n_items != self.n_items {
+        if n_items != self.cluster_sizes_distribution.n_items() {
             return f64::NEG_INFINITY;
         }
         let mut log_partitions = self.log_factorial[n_items];
@@ -651,21 +741,36 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
     let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
     let csd_name = csd_name.as_scalar().stop();
     let cluster_sizes_distribution = match csd_name.str(pc) {
-        "uniform" => ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len()),
+        "uniform" => {
+            ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len()).stop()
+        }
         "tilted_uniform" => {
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len())
-                .update_tilt(tilt)
+            let Ok(dist) =
+                ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len())
+            else {
+                stop!("Misconfiguration of cluster sizes distribution.");
+            };
+            dist.update_tilt(tilt).stop()
         }
-        "crp" => ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len()),
+        "crp" => {
+            let Ok(dist) = ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
+            else {
+                stop!("Misconfiguration of cluster sizes distribution.");
+            };
+            dist
+        }
         "tilted_crp" => {
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
-                .update_tilt(tilt)
+            let Ok(dist) = ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
+            else {
+                stop!("Misconfiguration of cluster sizes distribution.");
+            };
+            dist.update_tilt(tilt).stop()
         }
         "tilted_beta_binomial" => {
             let get_f64 = |name: &str| -> f64 {
@@ -677,15 +782,24 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
                 }
                 x
             };
-            ClusterSizesDistribution::new_beta_binomial(get_f64("alpha"), get_f64("beta")).stop()
+            let Ok(dist) = ClusterSizesDistribution::new_beta_binomial(
+                n_items,
+                get_f64("alpha"),
+                get_f64("beta"),
+            ) else {
+                stop!("Misconfiguration of cluster sizes distribution.");
+            };
+            dist
         }
         e => stop!("Unrecognized cluster size distribution: {}", e),
     };
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
     let n_clusters_distribution =
         NumberOfClustersDistribution::new_general(n_clusters_log_weights.slice()).stop();
+    if cluster_sizes_distribution.n_items() < n_clusters_distribution.max() {
+        stop!("The number of clusters cannot exceed the number of items.");
+    }
     let xhp = ExchangeableHierarchicalPartitionDistribution::new(
-        n_items,
         n_clusters_distribution,
         cluster_sizes_distribution,
     )
