@@ -121,7 +121,7 @@ impl NumberOfClustersDistribution {
         if max_n_clusters == 0 {
             return Err("The maximum number of clusters must be greater than 0.");
         }
-        if probability <= 0.0 || probability => 1.0 {
+        if probability <= 0.0 || probability >= 1.0 {
             return Err("The probability parameter must be in [0,1].");
         }
         let max = max_n_clusters.min(n_trials);
