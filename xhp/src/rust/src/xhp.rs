@@ -37,17 +37,14 @@ enum NumberOfClustersDistribution {
 #[allow(dead_code)]
 enum ClusterSizesDistribution {
     TiltedUniform {
-        n_items: usize,
         table: Vec<Vec<f64>>,
         tilt: f64,
     },
     TiltedCRP {
-        n_items: usize,
         log_stirling: Vec<Vec<f64>>,
         tilt: f64,
     },
     TiltedBetaBinomial {
-        n_items: usize,
         alpha: f64,
         beta: f64,
     },
@@ -193,11 +190,7 @@ impl ClusterSizesDistribution {
         }
         let max_n_clusters = max_n_clusters.min(n_items);
         let table = Self::precompute_uniform_size_configurations_table(n_items, max_n_clusters);
-        Ok(Self::TiltedUniform {
-            n_items,
-            table,
-            tilt: 0.0,
-        })
+        Ok(Self::TiltedUniform { table, tilt: 0.0 })
     }
 
     fn new_crp(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
@@ -210,7 +203,6 @@ impl ClusterSizesDistribution {
         let max_n_clusters = max_n_clusters.min(n_items);
         let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
         Ok(Self::TiltedCRP {
-            n_items,
             log_stirling,
             tilt: 0.0,
         })
@@ -223,39 +215,15 @@ impl ClusterSizesDistribution {
         if alpha <= 0.0 || beta <= 0.0 {
             Err("alpha and beta must be greater than zero.")
         } else {
-            Ok(Self::TiltedBetaBinomial {
-                n_items,
-                alpha,
-                beta,
-            })
+            Ok(Self::TiltedBetaBinomial { alpha, beta })
         }
     }
 
     fn update_tilt(self, tilt: f64) -> Result<Self, &'static str> {
         match self {
-            Self::TiltedUniform { n_items, table, .. } => Ok(Self::TiltedUniform {
-                n_items,
-                table,
-                tilt,
-            }),
-            Self::TiltedCRP {
-                n_items,
-                log_stirling,
-                ..
-            } => Ok(Self::TiltedCRP {
-                n_items,
-                log_stirling,
-                tilt,
-            }),
+            Self::TiltedUniform { table, .. } => Ok(Self::TiltedUniform { table, tilt }),
+            Self::TiltedCRP { log_stirling, .. } => Ok(Self::TiltedCRP { log_stirling, tilt }),
             _ => Err("Not appropriate for this variant of SizeConfigurationDistribution enum."),
-        }
-    }
-
-    fn n_items(&self) -> usize {
-        match self {
-            Self::TiltedUniform { n_items, .. } => *n_items,
-            Self::TiltedCRP { n_items, .. } => *n_items,
-            Self::TiltedBetaBinomial { n_items, .. } => *n_items,
         }
     }
 
@@ -266,14 +234,14 @@ impl ClusterSizesDistribution {
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
         match self {
-            Self::TiltedUniform { n_items, tilt, .. } => {
+            Self::TiltedUniform { tilt, .. } => {
                 if n_clusters > xhp.max_n_clusters || n_clusters == 0 {
                     return Err(
                         "Number of clusters is greater than the maximum number of clusters.",
                     );
                 }
                 let mut cluster_sizes = vec![0; n_clusters];
-                let mut n_items_working = *n_items;
+                let mut n_items_working = xhp.n_items;
                 let mut min_size = 1;
                 for k in (1..=n_clusters).rev() {
                     let mut lw = self.log_n_size_count_configurations(n_items_working, k, min_size);
@@ -294,13 +262,10 @@ impl ClusterSizesDistribution {
                 Ok(cluster_sizes)
             }
             Self::TiltedCRP {
-                n_items,
-                tilt,
-                log_stirling,
-                ..
+                tilt, log_stirling, ..
             } => {
                 // Start with the full set of items and clusters.
-                let mut n_items = *n_items;
+                let mut n_items = xhp.n_items;
                 let mut n_clusters = n_clusters;
                 let mut result = Vec::new();
                 // We'll reuse this vector for the sake of efficiency.
@@ -346,13 +311,13 @@ impl ClusterSizesDistribution {
         cluster_sizes: &mut [usize],
     ) -> f64 {
         match self {
-            Self::TiltedUniform { n_items, tilt, .. } => {
+            Self::TiltedUniform { tilt, .. } => {
                 let n_clusters = cluster_sizes.len();
                 if n_clusters > xhp.max_n_clusters {
                     return f64::NEG_INFINITY;
                 }
                 let mut n_items_working = cluster_sizes.iter().sum::<usize>();
-                if n_items_working != *n_items {
+                if n_items_working != xhp.n_items {
                     return f64::NEG_INFINITY;
                 }
                 cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
@@ -384,18 +349,15 @@ impl ClusterSizesDistribution {
                 sum_log_probability
             }
             Self::TiltedCRP {
-                n_items,
-                tilt,
-                log_stirling,
-                ..
+                tilt, log_stirling, ..
             } => {
                 let n_clusters = cluster_sizes.len();
-                if cluster_sizes.iter().sum::<usize>() != *n_items {
+                if cluster_sizes.iter().sum::<usize>() != xhp.n_items {
                     return f64::NEG_INFINITY;
                 }
                 // cluster_sizes.sort_unstable_by(|a, b| b.cmp(a));
                 // Start with the full set of items and clusters.
-                let mut n_items = *n_items;
+                let mut n_items = xhp.n_items;
                 let mut n_clusters = n_clusters;
                 // We'll reuse this vector for the sake of efficiency.
                 let mut lw: Vec<f64> = Vec::with_capacity(n_items - n_clusters + 1);
@@ -651,7 +613,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
             return Err("'cluster_sizes' implies more clusters than specified");
         }
         let n_items = cluster_sizes.iter().sum::<usize>();
-        if n_items != self.cluster_sizes_distribution.n_items() {
+        if n_items != self.n_items {
             return Err("'cluster_sizes' implies the wrong number of items");
         }
         let mut permutation: Vec<_> = (0..n_items).collect();
@@ -710,7 +672,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
 
     fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
         let n_items = cluster_sizes.iter().sum::<usize>();
-        if n_items != self.cluster_sizes_distribution.n_items() {
+        if n_items != self.n_items {
             return f64::NEG_INFINITY;
         }
         let mut log_partitions = self.log_factorial[n_items];
