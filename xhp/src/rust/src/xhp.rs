@@ -9,6 +9,125 @@ use rand_pcg::Pcg64Mcg;
 use statrs::function::gamma::ln_gamma;
 use std::hash::Hash;
 
+struct Builder {
+    n_items: usize,
+    max_n_clusters: usize,
+}
+
+impl Builder {
+    fn new(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
+        if n_items == 0 {
+            return Err("Number of items must be at least 1.");
+        };
+        if max_n_clusters == 0 {
+            return Err("Maximum number of clusters must be at least 1.");
+        };
+        if max_n_clusters > n_items {
+            return Err("Maximum number of clusters cannot be greater than the number of items.");
+        };
+        Ok(Self {
+            n_items,
+            max_n_clusters,
+        })
+    }
+
+    fn general(self, log_probability: &[f64]) -> Result<Builder2, &'static str> {
+        if self.max_n_clusters != log_probability.len() {
+            return Err("Inconsistent maximum number of clusters.");
+        }
+        let max_log = log_probability
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum_exp: f64 = log_probability.iter().map(|&x| (x - max_log).exp()).sum();
+        let log_sum_exp = max_log + sum_exp.ln();
+        let log_probability = std::iter::once(f64::NEG_INFINITY)
+            .chain(log_probability.iter().map(|&x| x - log_sum_exp))
+            .collect::<Vec<_>>();
+        let probability = log_probability.iter().map(|&x| x.exp()).collect::<Vec<_>>();
+        let Ok(weighted_index) = WeightedIndex::new(&probability) else {
+            return Err("Invalid distribution for the number of clusters.");
+        };
+        Ok(Builder2::new(
+            self,
+            NumberOfClustersDistribution::General {
+                log_probability,
+                weighted_index,
+            },
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn crp(builder: Builder, concentration: f64, discount: f64) -> Result<Builder2, &'static str> {
+        if discount < 0.0 || discount >= 1.0 {
+            return Err("The discount parameter must be in [0,1).");
+        }
+        if concentration <= -discount {
+            return Err("The concentration parameter must be greater than the negation of the discount parameter.");
+        }
+        Ok(Builder2::new(
+            builder,
+            NumberOfClustersDistribution::Crp {
+                concentration,
+                discount,
+            },
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn binomial(
+        builder: Builder,
+        n_trials: usize,
+        probability: f64,
+    ) -> Result<Builder2, &'static str> {
+        if probability <= 0.0 || probability >= 1.0 {
+            return Err("The probability parameter must be in [0,1].");
+        }
+        if n_trials <= builder.max_n_clusters {
+            return Err("The number of trials must be at least the maximum number of clusters.");
+        }
+        Ok(Builder2::new(
+            builder,
+            NumberOfClustersDistribution::Binomial {
+                n_trials,
+                probability,
+            },
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn poisson(builder: Builder, rate: f64) -> Result<Builder2, &'static str> {
+        if rate <= 0.0 {
+            return Err("The rate parameter must be in greater than 0.0.");
+        }
+        Ok(Builder2::new(
+            builder,
+            NumberOfClustersDistribution::Poisson { rate },
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn negative_binomial(
+        builder: Builder,
+        n_successes: usize,
+        probability: f64,
+    ) -> Result<Builder2, &'static str> {
+        if n_successes == 0 {
+            return Err("The number of success must be greater than 0.");
+        }
+        if probability <= 0.0 || probability >= 1.0 {
+            return Err("The probability parameter must be in [0,1].");
+        }
+        Ok(Builder2::new(
+            builder,
+            NumberOfClustersDistribution::NegativeBinomial {
+                n_successes,
+                probability,
+            },
+        ))
+    }
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 enum NumberOfClustersDistribution {
@@ -51,103 +170,6 @@ enum ClusterSizesDistribution {
 }
 
 impl NumberOfClustersDistribution {
-    fn new_general(builder: Builder1, log_probability: &[f64]) -> Result<Builder2, &'static str> {
-        if builder.max_n_clusters != log_probability.len() {
-            return Err("Inconsistent maximum number of clusters.");
-        }
-        let max_log = log_probability
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let sum_exp: f64 = log_probability.iter().map(|&x| (x - max_log).exp()).sum();
-        let log_sum_exp = max_log + sum_exp.ln();
-        let log_probability = std::iter::once(f64::NEG_INFINITY)
-            .chain(log_probability.iter().map(|&x| x - log_sum_exp))
-            .collect::<Vec<_>>();
-        let probability = log_probability.iter().map(|&x| x.exp()).collect::<Vec<_>>();
-        let Ok(weighted_index) = WeightedIndex::new(&probability) else {
-            return Err("Invalid distribution for the number of clusters.");
-        };
-        Ok(Builder2::new(
-            builder,
-            Self::General {
-                log_probability,
-                weighted_index,
-            },
-        ))
-    }
-
-    #[allow(dead_code)]
-    fn new_crp(
-        builder: Builder1,
-        concentration: f64,
-        discount: f64,
-    ) -> Result<Builder2, &'static str> {
-        if discount < 0.0 || discount >= 1.0 {
-            return Err("The discount parameter must be in [0,1).");
-        }
-        if concentration <= -discount {
-            return Err("The concentration parameter must be greater than the negation of the discount parameter.");
-        }
-        Ok(Builder2::new(
-            builder,
-            Self::Crp {
-                concentration,
-                discount,
-            },
-        ))
-    }
-
-    #[allow(dead_code)]
-    fn new_binomial(
-        builder: Builder1,
-        n_trials: usize,
-        probability: f64,
-    ) -> Result<Builder2, &'static str> {
-        if probability <= 0.0 || probability >= 1.0 {
-            return Err("The probability parameter must be in [0,1].");
-        }
-        if n_trials <= builder.max_n_clusters {
-            return Err("The number of trials must be at least the maximum number of clusters.");
-        }
-        Ok(Builder2::new(
-            builder,
-            Self::Binomial {
-                n_trials,
-                probability,
-            },
-        ))
-    }
-
-    #[allow(dead_code)]
-    fn new_poisson(builder: Builder1, rate: f64) -> Result<Builder2, &'static str> {
-        if rate <= 0.0 {
-            return Err("The rate parameter must be in greater than 0.0.");
-        }
-        Ok(Builder2::new(builder, Self::Poisson { rate }))
-    }
-
-    #[allow(dead_code)]
-    fn new_negative_binomial(
-        builder: Builder1,
-        n_successes: usize,
-        probability: f64,
-    ) -> Result<Builder2, &'static str> {
-        if n_successes == 0 {
-            return Err("The number of success must be greater than 0.");
-        }
-        if probability <= 0.0 || probability >= 1.0 {
-            return Err("The probability parameter must be in [0,1].");
-        }
-        Ok(Builder2::new(
-            builder,
-            Self::NegativeBinomial {
-                n_successes,
-                probability,
-            },
-        ))
-    }
-
     fn sample<R: Rng>(&self, rng: &mut R) -> usize {
         match self {
             Self::General { weighted_index, .. } => weighted_index.sample(rng),
@@ -509,29 +531,6 @@ impl ClusterSizesDistribution {
     }
 }
 
-struct Builder1 {
-    n_items: usize,
-    max_n_clusters: usize,
-}
-
-impl Builder1 {
-    fn new(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
-        if n_items == 0 {
-            return Err("Number of items must be at least 1.");
-        };
-        if max_n_clusters == 0 {
-            return Err("Maximum number of clusters must be at least 1.");
-        };
-        if max_n_clusters > n_items {
-            return Err("Maximum number of clusters cannot be greater than the number of items.");
-        };
-        Ok(Self {
-            n_items,
-            max_n_clusters,
-        })
-    }
-}
-
 struct Builder2 {
     n_items: usize,
     max_n_clusters: usize,
@@ -539,7 +538,7 @@ struct Builder2 {
 }
 
 impl Builder2 {
-    fn new(builder: Builder1, n_clusters_distribution: NumberOfClustersDistribution) -> Self {
+    fn new(builder: Builder, n_clusters_distribution: NumberOfClustersDistribution) -> Self {
         Self {
             n_items: builder.n_items,
             max_n_clusters: builder.max_n_clusters,
@@ -703,7 +702,7 @@ where
 #[roxido(module = xhp)]
 fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
     let max_n_clusters = n_clusters_log_weights.len();
-    let builder = Builder1::new(n_items, max_n_clusters).stop();
+    let builder = Builder::new(n_items, max_n_clusters).stop();
     let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
     let csd_name = csd_name.as_scalar().stop();
     let cluster_sizes_distribution = match csd_name.str(pc) {
@@ -760,8 +759,7 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
         e => stop!("Unrecognized cluster size distribution: {}", e),
     };
     let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
-    let n_clusters_distribution =
-        NumberOfClustersDistribution::new_general(builder, n_clusters_log_weights.slice()).stop();
+    let n_clusters_distribution = builder.general(n_clusters_log_weights.slice()).stop();
     let xhp = ExchangeableHierarchicalPartitionDistribution::new(
         n_clusters_distribution,
         cluster_sizes_distribution,
