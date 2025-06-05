@@ -68,15 +68,13 @@ impl NumberOfClustersDistribution {
         let Ok(weighted_index) = WeightedIndex::new(&probability) else {
             return Err("Invalid distribution for the number of clusters.");
         };
-        let dist = Self::General {
-            log_probability,
-            weighted_index,
-        };
-        Ok(Builder2 {
-            n_items: builder.n_items,
-            max_n_clusters: builder.max_n_clusters,
-            n_clusters_distribution: dist,
-        })
+        Ok(Builder2::new(
+            builder,
+            Self::General {
+                log_probability,
+                weighted_index,
+            },
+        ))
     }
 
     #[allow(dead_code)]
@@ -91,15 +89,13 @@ impl NumberOfClustersDistribution {
         if concentration <= -discount {
             return Err("The concentration parameter must be greater than the negation of the discount parameter.");
         }
-        let dist = Self::Crp {
-            concentration,
-            discount,
-        };
-        Ok(Builder2 {
-            n_items: builder.n_items,
-            max_n_clusters: builder.max_n_clusters,
-            n_clusters_distribution: dist,
-        })
+        Ok(Builder2::new(
+            builder,
+            Self::Crp {
+                concentration,
+                discount,
+            },
+        ))
     }
 
     #[allow(dead_code)]
@@ -114,15 +110,13 @@ impl NumberOfClustersDistribution {
         if n_trials <= builder.max_n_clusters {
             return Err("The number of trials must be at least the maximum number of clusters.");
         }
-        let dist = Self::Binomial {
-            n_trials,
-            probability,
-        };
-        Ok(Builder2 {
-            n_items: builder.n_items,
-            max_n_clusters: builder.max_n_clusters,
-            n_clusters_distribution: dist,
-        })
+        Ok(Builder2::new(
+            builder,
+            Self::Binomial {
+                n_trials,
+                probability,
+            },
+        ))
     }
 
     #[allow(dead_code)]
@@ -130,12 +124,7 @@ impl NumberOfClustersDistribution {
         if rate <= 0.0 {
             return Err("The rate parameter must be in greater than 0.0.");
         }
-        let dist = Self::Poisson { rate };
-        Ok(Builder2 {
-            n_items: builder.n_items,
-            max_n_clusters: builder.max_n_clusters,
-            n_clusters_distribution: dist,
-        })
+        Ok(Builder2::new(builder, Self::Poisson { rate }))
     }
 
     #[allow(dead_code)]
@@ -150,15 +139,13 @@ impl NumberOfClustersDistribution {
         if probability <= 0.0 || probability >= 1.0 {
             return Err("The probability parameter must be in [0,1].");
         }
-        let dist = Self::NegativeBinomial {
-            n_successes,
-            probability,
-        };
-        Ok(Builder2 {
-            n_items: builder.n_items,
-            max_n_clusters: builder.max_n_clusters,
-            n_clusters_distribution: dist,
-        })
+        Ok(Builder2::new(
+            builder,
+            Self::NegativeBinomial {
+                n_successes,
+                probability,
+            },
+        ))
     }
 
     fn sample<R: Rng>(&self, rng: &mut R) -> usize {
@@ -539,8 +526,8 @@ impl Builder1 {
             return Err("Maximum number of clusters cannot be greater than the number of items.");
         };
         Ok(Self {
-            n_items: n_items.into(),
-            max_n_clusters: max_n_clusters.into(),
+            n_items,
+            max_n_clusters,
         })
     }
 }
@@ -549,6 +536,16 @@ struct Builder2 {
     n_items: usize,
     max_n_clusters: usize,
     n_clusters_distribution: NumberOfClustersDistribution,
+}
+
+impl Builder2 {
+    fn new(builder: Builder1, n_clusters_distribution: NumberOfClustersDistribution) -> Self {
+        Self {
+            n_items: builder.n_items,
+            max_n_clusters: builder.max_n_clusters,
+            n_clusters_distribution,
+        }
+    }
 }
 
 #[derive(Debug)]
