@@ -5,7 +5,7 @@ new <- function(n_items, n_clusters_log_weights, cluster_sizes_distribution) {
 
 #' @export
 print.xhp <- function(xhp) {
-  cat("Pointer to a Generalized Hierarchical Uniform Partition Distribution (xhp)\n")
+  .Call(.xhp__print, xhp)
 }
 
 #' @export

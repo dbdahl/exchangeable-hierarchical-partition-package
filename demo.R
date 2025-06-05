@@ -97,7 +97,7 @@ exp(xhp::log_probability_n_clusters(distr, 5)) # Should be 0.2
 exp(xhp::log_probability_n_clusters(distr, 6)) # Should be zero
 
 exp(-xhp::log_probability_partition_given_cluster_sizes(distr, c(5, 3, 2))) # Should be 2520
-exp(-xhp::log_probability_partition_given_cluster_sizes(distr, c(5, 3, 1))) # Should be zero
+exp(-xhp::log_probability_partition_given_cluster_sizes(distr, c(5, 3, 1))) # Should be infinity
 
 xhp::log_probability_cluster_sizes_given_n_clusters(distr, c(5, 3, 2)) # Should be the same
 xhp::log_probability_cluster_sizes_given_n_clusters(distr, c(6, 3, 1)) # Should be the same
@@ -175,7 +175,7 @@ sum(sapply(1:5, \(x) {
 # CRP
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 2.0))
-x <- table(sapply(seq_len(20000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
+x <- table(sapply(seq_len(20000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 4))), collapse = "")))
 x / sum(x)
 
 
@@ -186,7 +186,7 @@ crp <- CRPPartition(nItems = n_items, concentration = concentration)
 x <- samplePartition(crp, 100000)
 w <- apply(x, 1, \(y) length(unique(y))) == 4
 mean(w)
-z <- table(apply(x[w,], 1, \(y) paste0(rev(sort(table(y))), collapse="")))
+z <- table(apply(x[w, ], 1, \(y) paste0(rev(sort(table(y))), collapse = "")))
 z / sum(z)
 
 
@@ -194,19 +194,19 @@ z / sum(z)
 # Tilted CRP
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 0))
-x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 1.0, discount = 0.3))
-x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 2))
-x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
 distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20))
-x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
+x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
 
