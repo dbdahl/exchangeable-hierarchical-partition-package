@@ -156,12 +156,12 @@ enum NumberOfClustersDistribution {
 #[allow(dead_code)]
 enum ClusterSizesDistribution {
     TiltedUniform {
-        table: Vec<Vec<f64>>,
         tilt: f64,
+        table: Vec<Vec<f64>>,
     },
     TiltedCRP {
-        log_stirling: Vec<Vec<f64>>,
         tilt: f64,
+        log_stirling: Vec<Vec<f64>>,
     },
     TiltedBetaBinomial {
         alpha: f64,
@@ -190,49 +190,11 @@ impl NumberOfClustersDistribution {
 }
 
 impl ClusterSizesDistribution {
-    fn new_uniform(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
-        if max_n_clusters == 0 {
-            return Err("The maximum number of clusters must be greater than 0.");
-        }
-        if n_items == 0 {
-            return Err("The maximum number of items must be greater than 0.");
-        }
-        let max_n_clusters = max_n_clusters.min(n_items);
-        let table = Self::precompute_uniform_size_configurations_table(n_items, max_n_clusters);
-        Ok(Self::TiltedUniform { table, tilt: 0.0 })
-    }
-
-    fn new_crp(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
-        if max_n_clusters == 0 {
-            return Err("The maximum number of clusters must be greater than 0.");
-        }
-        if n_items == 0 {
-            return Err("The maximum number of items must be greater than 0.");
-        }
-        let max_n_clusters = max_n_clusters.min(n_items);
-        let log_stirling = Self::generate_log_stirling_table(n_items, max_n_clusters);
-        Ok(Self::TiltedCRP {
-            log_stirling,
-            tilt: 0.0,
-        })
-    }
-
-    fn new_beta_binomial(n_items: usize, alpha: f64, beta: f64) -> Result<Self, &'static str> {
-        if n_items == 0 {
-            return Err("Number of items must be at least 1.");
-        }
-        if alpha <= 0.0 || beta <= 0.0 {
-            Err("alpha and beta must be greater than zero.")
-        } else {
-            Ok(Self::TiltedBetaBinomial { alpha, beta })
-        }
-    }
-
-    fn update_tilt(self, tilt: f64) -> Result<Self, &'static str> {
+    fn update_tilt(&mut self, x: f64) {
         match self {
-            Self::TiltedUniform { table, .. } => Ok(Self::TiltedUniform { table, tilt }),
-            Self::TiltedCRP { log_stirling, .. } => Ok(Self::TiltedCRP { log_stirling, tilt }),
-            _ => Err("Not appropriate for this variant of SizeConfigurationDistribution enum."),
+            Self::TiltedUniform { tilt, .. } => *tilt = x,
+            Self::TiltedCRP { tilt, .. } => *tilt = x,
+            _ => {}
         }
     }
 
@@ -418,96 +380,6 @@ impl ClusterSizesDistribution {
         }
     }
 
-    /// Generates a lookup table for log_stirling numbers with bounds on n and k.
-    /// The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
-    /// the valid k indices are 0 <= k <= min(n, k_max).
-    ///
-    /// The recurrence is defined as:
-    /// - log_stirling(0, 0) = 0.0,
-    /// - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
-    /// - For n <= k_max, log_stirling(n, n) = 0.0,
-    /// - Otherwise for 1 <= k <= min(n, k_max):
-    ///   log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
-    ///   ln(n-1) + log_stirling(n-1, k) )
-    ///
-    /// # Arguments
-    ///
-    /// * `n_max` - maximum n value to compute.
-    /// * `k_max` - maximum k value to compute (for each n, only values up to min(n, k_max) are computed).
-    fn generate_log_stirling_table(n_max: usize, k_max: usize) -> Vec<Vec<f64>> {
-        // Allocate table where row n has min(n, k_max)+1 entries.
-        let mut table: Vec<Vec<f64>> = Vec::with_capacity(n_max + 1);
-        for n in 0..=n_max {
-            let num_cols = std::cmp::min(n, k_max) + 1;
-            table.push(vec![f64::NEG_INFINITY; num_cols]);
-        }
-
-        // Base case: log_stirling(0, 0) = log(1) = 0.
-        table[0][0] = 0.0;
-
-        // Build the table using the recurrence.
-        for n in 1..=n_max {
-            let max_k = std::cmp::min(n, k_max);
-            for k in 1..=max_k {
-                // When n equals k (and n <= k_max), there's exactly one permutation so log(1) = 0.
-                if n <= k_max && n == k {
-                    table[n][k] = 0.0;
-                } else {
-                    // Use the recurrence:
-                    // log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
-                    //                                   ln(n-1) + log_stirling(n-1, k) )
-                    table[n][k] = Self::log_sum_exp(
-                        table[n - 1][k - 1],
-                        ((n - 1) as f64).ln() + table[n - 1][k],
-                    );
-                }
-            }
-        }
-        table
-    }
-
-    /// Computes log(exp(a) + exp(b)) in a numerically stable way.
-    fn log_sum_exp(a: f64, b: f64) -> f64 {
-        if a == f64::NEG_INFINITY && b == f64::NEG_INFINITY {
-            return f64::NEG_INFINITY;
-        }
-        let m = a.max(b);
-        m + ((a - m).exp() + (b - m).exp()).ln()
-    }
-
-    fn precompute_uniform_size_configurations_table(
-        max_extra: usize,
-        max_n_clusters: usize,
-    ) -> Vec<Vec<f64>> {
-        let mut dp = vec![vec![f64::NEG_INFINITY; max_n_clusters + 1]; max_extra + 1];
-        for j in 0..=max_n_clusters {
-            dp[0][j] = 0.0;
-        }
-        for i in 1..=max_extra {
-            for j in 1..=max_n_clusters {
-                // Option 1: Do not use a j-sized part.
-                let log_without = dp[i][j - 1];
-                // Option 2: Use at least one item in a part of size j.
-                let log_with = if i >= j {
-                    dp[i - j][j]
-                } else {
-                    f64::NEG_INFINITY
-                };
-                dp[i][j] = if log_without == f64::NEG_INFINITY {
-                    log_with
-                } else if log_with == f64::NEG_INFINITY {
-                    log_without
-                } else {
-                    // Log-sum-exp: log(exp(log_without) + exp(log_with))
-                    let max_log = log_without.max(log_with);
-                    let min_log = log_without.min(log_with);
-                    max_log + (min_log - max_log).exp().ln_1p()
-                };
-            }
-        }
-        dp
-    }
-
     fn log_n_size_count_configurations(&self, n: usize, k: usize, w: usize) -> Vec<f64> {
         match self {
             Self::TiltedUniform { table, .. } => {
@@ -545,6 +417,137 @@ impl Builder2 {
             n_clusters_distribution,
         }
     }
+
+    fn uniform(self) -> Builder3 {
+        let mut table = vec![vec![f64::NEG_INFINITY; self.max_n_clusters + 1]; self.n_items + 1];
+        for j in 0..=self.max_n_clusters {
+            table[0][j] = 0.0;
+        }
+        for i in 1..=self.n_items {
+            for j in 1..=self.max_n_clusters {
+                // Option 1: Do not use a j-sized part.
+                let log_without = table[i][j - 1];
+                // Option 2: Use at least one item in a part of size j.
+                let log_with = if i >= j {
+                    table[i - j][j]
+                } else {
+                    f64::NEG_INFINITY
+                };
+                table[i][j] = if log_without == f64::NEG_INFINITY {
+                    log_with
+                } else if log_with == f64::NEG_INFINITY {
+                    log_without
+                } else {
+                    // Log-sum-exp: log(exp(log_without) + exp(log_with))
+                    let max_log = log_without.max(log_with);
+                    let min_log = log_without.min(log_with);
+                    max_log + (min_log - max_log).exp().ln_1p()
+                };
+            }
+        }
+        let dist = ClusterSizesDistribution::TiltedUniform { tilt: 0.0, table };
+        Builder3::new(self, dist)
+    }
+
+    fn crp(self) -> Builder3 {
+        // Generates a lookup table for log_stirling numbers with bounds on n and k.
+        // The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
+        // the valid k indices are 0 <= k <= min(n, k_max).
+        //
+        // The recurrence is defined as:
+        // - log_stirling(0, 0) = 0.0,
+        // - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
+        // - For n <= k_max, log_stirling(n, n) = 0.0,
+        // - Otherwise for 1 <= k <= min(n, k_max):
+        //   log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+        //   ln(n-1) + log_stirling(n-1, k) )
+        //
+        // # Arguments
+        //
+        // * `n_max` - maximum n value to compute.
+        // * `k_max` - maximum k value to compute (for each n, only values up to min(n, k_max) are computed).
+        // Allocate table where row n has min(n, k_max)+1 entries.
+        let mut log_stirling: Vec<Vec<f64>> = Vec::with_capacity(self.n_items + 1);
+        for n in 0..=self.n_items {
+            let num_cols = std::cmp::min(n, self.max_n_clusters) + 1;
+            log_stirling.push(vec![f64::NEG_INFINITY; num_cols]);
+        }
+        /// Computes log(exp(a) + exp(b)) in a numerically stable way.
+        fn log_sum_exp(a: f64, b: f64) -> f64 {
+            if a == f64::NEG_INFINITY && b == f64::NEG_INFINITY {
+                return f64::NEG_INFINITY;
+            }
+            let m = a.max(b);
+            m + ((a - m).exp() + (b - m).exp()).ln()
+        }
+        // Base case: log_stirling(0, 0) = log(1) = 0.
+        log_stirling[0][0] = 0.0;
+        // Build the table using the recurrence.
+        for n in 1..=self.n_items {
+            let max_k = std::cmp::min(n, self.max_n_clusters);
+            for k in 1..=max_k {
+                // When n equals k (and n <= k_max), there's exactly one permutation so log(1) = 0.
+                if n <= self.max_n_clusters && n == k {
+                    log_stirling[n][k] = 0.0;
+                } else {
+                    // Use the recurrence:
+                    // log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+                    //                                   ln(n-1) + log_stirling(n-1, k) )
+                    log_stirling[n][k] = log_sum_exp(
+                        log_stirling[n - 1][k - 1],
+                        ((n - 1) as f64).ln() + log_stirling[n - 1][k],
+                    );
+                }
+            }
+        }
+        let dist = ClusterSizesDistribution::TiltedCRP {
+            tilt: 0.0,
+            log_stirling,
+        };
+        Builder3::new(self, dist)
+    }
+
+    fn beta_binomial(self, alpha: f64, beta: f64) -> Result<Builder3, &'static str> {
+        if alpha <= 0.0 || beta <= 0.0 {
+            Err("alpha and beta must be greater than zero.")
+        } else {
+            let dist = ClusterSizesDistribution::TiltedBetaBinomial { alpha, beta };
+            Ok(Builder3::new(self, dist))
+        }
+    }
+}
+
+struct Builder3 {
+    n_items: usize,
+    max_n_clusters: usize,
+    n_clusters_distribution: NumberOfClustersDistribution,
+    cluster_sizes_distribution: ClusterSizesDistribution,
+}
+
+impl Builder3 {
+    fn new(builder: Builder2, cluster_sizes_distribution: ClusterSizesDistribution) -> Self {
+        Self {
+            n_items: builder.n_items,
+            max_n_clusters: builder.max_n_clusters,
+            n_clusters_distribution: builder.n_clusters_distribution,
+            cluster_sizes_distribution,
+        }
+    }
+
+    fn finalize(self) -> ExchangeableHierarchicalPartitionDistribution {
+        let n_items = self.n_items;
+        let mut log_factorial = Vec::with_capacity(n_items + 1);
+        for i in 0..=n_items {
+            log_factorial.push(ln_gamma((i as f64) + 1.0));
+        }
+        ExchangeableHierarchicalPartitionDistribution {
+            n_items,
+            max_n_clusters: self.max_n_clusters,
+            n_clusters_distribution: self.n_clusters_distribution,
+            cluster_sizes_distribution: self.cluster_sizes_distribution,
+            log_factorial,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -557,24 +560,6 @@ struct ExchangeableHierarchicalPartitionDistribution {
 }
 
 impl ExchangeableHierarchicalPartitionDistribution {
-    fn new(
-        builder2: Builder2,
-        cluster_sizes_distribution: ClusterSizesDistribution,
-    ) -> Result<Self, &'static str> {
-        let n_items = builder2.n_items;
-        let mut log_factorial = Vec::with_capacity(n_items + 1);
-        for i in 0..=n_items {
-            log_factorial.push(ln_gamma((i as f64) + 1.0));
-        }
-        Ok(Self {
-            n_items,
-            max_n_clusters: builder2.max_n_clusters,
-            n_clusters_distribution: builder2.n_clusters_distribution,
-            cluster_sizes_distribution,
-            log_factorial,
-        })
-    }
-
     /// Sample a partition from the XHP distribution.
     fn sample_partition<R: Rng>(&mut self, rng: &mut R) -> Vec<usize> {
         let n_clusters = self.sample_n_clusters(rng);
@@ -703,39 +688,28 @@ where
 fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
     let max_n_clusters = n_clusters_log_weights.len();
     let builder = Builder::new(n_items, max_n_clusters).stop();
+    let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
+    let builder = builder.general(n_clusters_log_weights.slice()).stop();
     let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
     let csd_name = csd_name.as_scalar().stop();
-    let cluster_sizes_distribution = match csd_name.str(pc) {
-        "uniform" => {
-            ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len()).stop()
-        }
+    let builder = match csd_name.str(pc) {
+        "uniform" => builder.uniform(),
         "tilted_uniform" => {
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            let Ok(dist) =
-                ClusterSizesDistribution::new_uniform(n_items, n_clusters_log_weights.len() - 1)
-            else {
-                stop!("Misconfiguration of cluster sizes distribution.");
-            };
-            dist.update_tilt(tilt).stop()
+            let mut builder = builder.uniform();
+            builder.cluster_sizes_distribution.update_tilt(tilt);
+            builder
         }
-        "crp" => {
-            let Ok(dist) = ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
-            else {
-                stop!("Misconfiguration of cluster sizes distribution.");
-            };
-            dist
-        }
+        "crp" => builder.crp(),
         "tilted_crp" => {
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            let Ok(dist) = ClusterSizesDistribution::new_crp(n_items, n_clusters_log_weights.len())
-            else {
-                stop!("Misconfiguration of cluster sizes distribution.");
-            };
-            dist.update_tilt(tilt).stop()
+            let mut builder = builder.crp();
+            builder.cluster_sizes_distribution.update_tilt(tilt);
+            builder
         }
         "tilted_beta_binomial" => {
             let get_f64 = |name: &str| -> f64 {
@@ -747,24 +721,13 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
                 }
                 x
             };
-            let Ok(dist) = ClusterSizesDistribution::new_beta_binomial(
-                n_items,
-                get_f64("alpha"),
-                get_f64("beta"),
-            ) else {
-                stop!("Misconfiguration of cluster sizes distribution.");
-            };
-            dist
+            builder
+                .beta_binomial(get_f64("alpha"), get_f64("beta"))
+                .stop()
         }
         e => stop!("Unrecognized cluster size distribution: {}", e),
     };
-    let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
-    let n_clusters_distribution = builder.general(n_clusters_log_weights.slice()).stop();
-    let xhp = ExchangeableHierarchicalPartitionDistribution::new(
-        n_clusters_distribution,
-        cluster_sizes_distribution,
-    )
-    .stop();
+    let xhp = builder.finalize();
     let result = RExternalPtr::encode(xhp, "xhp", pc);
     result.set_class(["xhp"].to_r(pc));
     result
