@@ -44,7 +44,7 @@ Type 'q()' to quit R.
 > 
 > system.time(f1 <- xhp::make_gupd(prob, n_items, log = TRUE))
    user  system elapsed 
-  1.180   0.000   1.185 
+  1.230   0.000   1.235 
 > o1 <- sapply(k, f1)
 > o1
 [1]  -693152.6 -1609436.4 -2995696.2 -3401138.3 -3911917.9
@@ -89,7 +89,7 @@ Type 'q()' to quit R.
 > x / sum(x)  # Should match weights above
 
      1      2      3      4      5 
-0.2032 0.2944 0.1013 0.2546 0.1465 
+0.1933 0.3005 0.1045 0.2476 0.1541 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1, 1)), list(method = "uniform"))
 > 
@@ -97,13 +97,13 @@ Type 'q()' to quit R.
 > x / sum(x)  # Should be uniform
 
      1      2      3      4      5 
-0.2071 0.1974 0.2012 0.1941 0.2002 
+0.2082 0.1974 0.1960 0.2024 0.1960 
 > 
 > # Should be an error
 > tryCatch(xhp::sample_cluster_sizes_given_n_clusters(distr, 0), error = \(x) x)
 <simpleError in xhp::sample_cluster_sizes_given_n_clusters(distr, 0): Number of clusters is greater than the maximum number of clusters.>
 > xhp::sample_cluster_sizes_given_n_clusters(distr, 5)
-[1] 3 2 2 2 1
+[1] 3 3 2 1 1
 > tryCatch(xhp::sample_cluster_sizes_given_n_clusters(distr, 6), error = \(x) x)
 <simpleError in xhp::sample_cluster_sizes_given_n_clusters(distr, 6): Number of clusters is greater than the maximum number of clusters.>
 > 
@@ -111,19 +111,19 @@ Type 'q()' to quit R.
 > x / sum(x)  # Should be uniform
 
     55     64     73     82     91 
-0.2000 0.1988 0.1979 0.2013 0.2020 
+0.1987 0.2085 0.1970 0.1938 0.2020 
 > 
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 > x / sum(x)  # Should be uniform
 
    433    442    532    541    622    631    721    811 
-0.1267 0.1294 0.1261 0.1208 0.1265 0.1196 0.1260 0.1249 
+0.1251 0.1330 0.1232 0.1240 0.1293 0.1242 0.1205 0.1207 
 > 
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 4))), collapse="")))
 > x / sum(x)  # Should be uniform
 
   3322   3331   4222   4321   4411   5221   5311   6211   7111 
-0.1099 0.1110 0.1143 0.1136 0.1100 0.1056 0.1097 0.1143 0.1116 
+0.1095 0.1170 0.1091 0.1116 0.1078 0.1106 0.1060 0.1148 0.1136 
 > 
 > sum(sapply(seq_len(1000), \(x) length(unique(xhp::sample_partition_given_n_clusters(distr, 4)))) != 4) # Should be zero
 [1] 0
@@ -133,7 +133,7 @@ Type 'q()' to quit R.
 > 
 > rev(sort(table(xhp::sample_partition_given_cluster_sizes(distr, c(6, 4)))))
 
-2 1 
+1 2 
 6 4 
 > 
 > # Should be an error
@@ -192,7 +192,7 @@ Type 'q()' to quit R.
 > distr <- xhp::new(5, c(1, 1, 1, 1, 1), list(method = "uniform"))
 > cluster_sizes <- rev(sort(table(xhp::sample_partition(distr))))
 > exp(xhp::log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes))
-[1] 0.5
+[1] 1
 > 
 > n_items <- 10
 > distr <- xhp::new(n_items, c(1, 1, 1, 1), list(method = "uniform"))
@@ -224,35 +224,35 @@ Type 'q()' to quit R.
 > x / sum(x)  # Should be uniform
 
    433    442    532    541    622    631    721    811 
-0.1258 0.1291 0.1220 0.1277 0.1261 0.1185 0.1263 0.1245 
+0.1217 0.1239 0.1302 0.1214 0.1219 0.1277 0.1308 0.1224 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 0.5))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 > x / sum(x)
 
-   433    442    532    541    622    631    721 
-0.3950 0.2878 0.1709 0.0787 0.0411 0.0235 0.0030 
+   433    442    532    541    622    631    721    811 
+0.3835 0.2910 0.1800 0.0739 0.0402 0.0276 0.0036 0.0002 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -0.5))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 > x / sum(x)
 
    433    442    532    541    622    631    721    811 
-0.0147 0.0113 0.0135 0.0017 0.0746 0.0056 0.0413 0.8373 
+0.0150 0.0103 0.0189 0.0020 0.0740 0.0048 0.0455 0.8295 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 2.0))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 > x / sum(x)
 
    433    442    532 
-0.8981 0.0910 0.0109 
+0.9041 0.0861 0.0098 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = -2.0))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
 > x / sum(x)
 
    622    811 
-0.0005 0.9995 
+0.0007 0.9993 
 > 
 > distr <- xhp::new(10, log(c(1, 1, 1, 1)), list(method = "tilted_uniform", tilt = 20.0))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse="")))
@@ -289,7 +289,7 @@ Type 'q()' to quit R.
 > x / sum(x)
 
    3222    3321    4221    4311    5211    6111 
-0.03930 0.15225 0.16325 0.22765 0.26775 0.14980 
+0.03715 0.15220 0.17015 0.22400 0.27340 0.14310 
 > 
 > 
 > library(gourd)
@@ -299,12 +299,12 @@ Type 'q()' to quit R.
 > x <- samplePartition(crp, 100000)
 > w <- apply(x, 1, \(y) length(unique(y))) == 4
 > mean(w)
-[1] 0.29643
+[1] 0.29552
 > z <- table(apply(x[w, ], 1, \(y) paste0(rev(sort(table(y))), collapse = "")))
 > z / sum(z)
 
-      3222       3321       4221       4311       5211       6111 
-0.03710825 0.15086192 0.16880883 0.22845191 0.26616739 0.14860169 
+     3222      3321      4221      4311      5211      6111 
+0.0377301 0.1491270 0.1641175 0.2345019 0.2647198 0.1498037 
 > 
 > 
 > 
@@ -315,21 +315,21 @@ Type 'q()' to quit R.
 > x / sum(x)
 
    333    432    441    522    531    621    711 
-0.0179 0.1282 0.0944 0.0771 0.2058 0.2582 0.2184 
+0.0201 0.1270 0.0987 0.0746 0.2044 0.2560 0.2192 
 > 
 > distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 1.0, discount = 0.3))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 > x / sum(x)
 
    333    432    441    522    531    621    711 
-0.0185 0.1247 0.0910 0.0807 0.2076 0.2522 0.2253 
+0.0178 0.1257 0.0951 0.0771 0.2059 0.2583 0.2201 
 > 
 > distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 2))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 > x / sum(x)
 
    333    432    441    522    531 
-0.6062 0.3868 0.0031 0.0028 0.0011 
+0.6045 0.3893 0.0028 0.0027 0.0007 
 > 
 > distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20))
 > x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
@@ -343,29 +343,29 @@ Type 'q()' to quit R.
 > distr <- xhp::new(1000000, rep(1, 100), list(method = "uniform"))
 > cluster_sizes <- rev(sort(table(xhp::sample_partition(distr))))
 > xhp::log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
-[1] -188.5963
+[1] -424.963
 > print(system.time(sampled_partitions <- sapply(seq_len(1000), \(x) xhp::sample_partition(distr))))
    user  system elapsed 
- 22.450   2.685  25.308 
+ 22.805   2.795  25.760 
 > dim(sampled_partitions)
 [1] 1000000    1000
 > print(system.time(apply(sampled_partitions, 2, \(partition) xhp::log_probability_partition(distr, partition))))
    user  system elapsed 
- 19.537   1.692  21.365 
+ 20.588   1.777  22.554 
 > 
 > 
 > distr <- xhp::new(1000000, rep(1, 100), list(method = "crp", concentration = 1.0))
 > cluster_sizes <- rev(sort(table(xhp::sample_partition(distr))))
 > xhp::log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
-[1] -315.9123
+[1] -277.5522
 > print(system.time(sampled_partitions <- sapply(seq_len(1000), \(x) xhp::sample_partition(distr))))
    user  system elapsed 
- 81.280   2.388  84.240 
+ 82.156   2.532  85.293 
 > dim(sampled_partitions)
 [1] 1000000    1000
 > print(system.time(apply(sampled_partitions, 2, \(partition) xhp::log_probability_partition(distr, partition))))
    user  system elapsed 
- 37.134   2.331  39.733 
+ 38.688   2.484  41.548 
 > 
 > 
 > engine <- function(cluster_sizes_distribution) {
@@ -385,17 +385,17 @@ Type 'q()' to quit R.
 + times = 5)
 Unit: seconds
                                                                  expr      min
-                                     engine(list(method = "uniform")) 1.361921
-                engine(list(method = "tilted_uniform", tilt = 1e-13)) 1.371621
-                      engine(list(method = "crp", concentration = 1)) 2.329119
- engine(list(method = "tilted_crp", concentration = 1, tilt = 1e-13)) 2.297935
+                                     engine(list(method = "uniform")) 1.484146
+                engine(list(method = "tilted_uniform", tilt = 1e-13)) 1.519801
+                      engine(list(method = "crp", concentration = 1)) 2.613208
+ engine(list(method = "tilted_crp", concentration = 1, tilt = 1e-13)) 2.523997
        lq     mean   median       uq      max neval
- 1.386766 1.443169 1.391221 1.474821 1.601118     5
- 1.433862 1.533040 1.542223 1.652248 1.665246     5
- 2.416422 2.493333 2.552509 2.559171 2.609444     5
- 2.353311 2.502139 2.573601 2.631211 2.654637     5
+ 1.608566 1.647059 1.625236 1.719508 1.797840     5
+ 1.602057 1.785565 1.768339 1.821151 2.216476     5
+ 2.622062 2.809543 2.628332 3.077210 3.106904     5
+ 2.695830 2.833467 2.867205 2.977443 3.102860     5
 > 
 > 
 > proc.time()
    user  system elapsed 
-211.867  13.922 227.064 
+221.238  14.618 237.387 
