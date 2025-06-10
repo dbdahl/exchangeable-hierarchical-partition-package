@@ -3,10 +3,12 @@ roxido_registration!();
 
 mod xhp;
 
+use crate::xhp::{Builder, ExchangeableHierarchicalPartitionDistribution};
 use ahash::AHashMap;
 use rand::prelude::*;
 use rand::Rng;
 use rand_distr::{Beta, BetaError, Binomial};
+use rand_pcg::Pcg64Mcg;
 use roxido::*;
 use statrs::function::gamma::ln_gamma;
 use std::f64;
@@ -141,4 +143,156 @@ pub fn log_pmf_beta_binomial(x: u64, n_items: u64, alpha: f64, beta: f64) -> f64
     // Compute log beta function for denominator: ln(B(alpha, beta))
     let log_beta_den = ln_gamma(alpha) + ln_gamma(beta) - ln_gamma(alpha + beta);
     log_comb + log_beta_num - log_beta_den
+}
+
+#[roxido]
+fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
+    let max_n_clusters = n_clusters_log_weights.len();
+    let builder = Builder::new(n_items, max_n_clusters).stop();
+    let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
+    let builder = builder.general(n_clusters_log_weights.slice()).stop();
+    let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
+    let csd_name = csd_name.as_scalar().stop();
+    let xhp = match csd_name.str(pc) {
+        "uniform" => builder.uniform(),
+        "tilted_uniform" => {
+            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
+            let tilt = tilt.as_scalar().stop();
+            let tilt = tilt.f64();
+            let mut builder = builder.uniform();
+            builder.cluster_sizes_distribution_mut().update_tilt(tilt);
+            builder
+        }
+        "crp" => builder.crp(),
+        "tilted_crp" => {
+            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
+            let tilt = tilt.as_scalar().stop();
+            let tilt = tilt.f64();
+            let mut builder = builder.crp();
+            builder.cluster_sizes_distribution_mut().update_tilt(tilt);
+            builder
+        }
+        "tilted_beta_binomial" => {
+            let get_f64 = |name: &str| -> f64 {
+                let x = cluster_sizes_distribution.get_by_key(name).stop();
+                let x = x.as_scalar().stop();
+                let x = x.f64();
+                if x <= 0.0 {
+                    stop!("'{}' must be greater than 0.0 but is {}.", name, x)
+                }
+                x
+            };
+            builder
+                .beta_binomial(get_f64("alpha"), get_f64("beta"))
+                .stop()
+        }
+        e => stop!("Unrecognized cluster size distribution: {}", e),
+    };
+    let result = RExternalPtr::encode(xhp, "xhp", pc);
+    result.set_class(["xhp"].to_r(pc));
+    result
+}
+
+#[roxido]
+fn sample_partition(xhp: &mut RExternalPtr) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let partition = xhp.sample_partition(&mut rng);
+    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
+}
+
+#[roxido]
+fn sample_partition_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let partition = xhp
+        .sample_partition_given_n_clusters(n_clusters, &mut rng)
+        .stop();
+    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
+}
+
+#[roxido]
+fn sample_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&x| usize::try_from(x).stop())
+        .collect::<Vec<_>>();
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let partition = xhp
+        .sample_partition_given_cluster_sizes(&cluster_sizes, &mut rng)
+        .stop();
+    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
+}
+
+#[roxido]
+fn sample_n_clusters(xhp: &mut RExternalPtr) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let cluster_sizes = xhp.sample_n_clusters(&mut rng);
+    i32::try_from(cluster_sizes).stop()
+}
+
+#[roxido]
+fn sample_cluster_sizes_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
+    let cluster_sizes = xhp
+        .cluster_sizes_distribution()
+        .sample(xhp, n_clusters, &mut rng)
+        .stop();
+    cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
+}
+
+#[roxido]
+fn log_probability_partition(xhp: &mut RExternalPtr, partition: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let partition = partition.to_i32(pc);
+    let slice = partition.slice();
+    xhp.log_probability_partition(slice)
+}
+
+#[roxido]
+fn log_probability_partition_using_cluster_sizes(xhp: &RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let mut cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    xhp.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
+}
+
+#[roxido]
+fn log_probability_n_clusters(xhp: &RExternalPtr, n_clusters: usize) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
+    xhp.log_probability_n_clusters(n_clusters)
+}
+
+#[roxido]
+fn log_probability_cluster_sizes_given_n_clusters(xhp: &RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let mut cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    xhp.cluster_sizes_distribution()
+        .log_probability(xhp, &mut cluster_sizes)
+}
+
+#[roxido]
+fn log_probability_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
+    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
+    let cluster_sizes = cluster_sizes.to_i32(pc);
+    let cluster_sizes = cluster_sizes
+        .slice()
+        .iter()
+        .map(|&c| usize::try_from(c).stop())
+        .collect::<Vec<_>>();
+    xhp.log_probability_partition_given_cluster_sizes(&cluster_sizes)
 }

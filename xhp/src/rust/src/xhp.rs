@@ -1,21 +1,19 @@
-use roxido::*;
-
 use ahash::AHashMap;
 use rand::distr::weighted::WeightedIndex;
 use rand::distr::Distribution;
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
-use rand_pcg::Pcg64Mcg;
+use rand::Rng;
+use roxido::*;
 use statrs::function::gamma::ln_gamma;
 use std::hash::Hash;
 
-struct Builder {
+pub struct Builder {
     n_items: usize,
     max_n_clusters: usize,
     log_factorial: Vec<f64>,
 }
 
-struct BuilderWithNumberOfClustersDistribution {
+pub struct BuilderWithNumberOfClustersDistribution {
     n_items: usize,
     max_n_clusters: usize,
     n_clusters_distribution: NumberOfClustersDistribution,
@@ -23,7 +21,7 @@ struct BuilderWithNumberOfClustersDistribution {
 }
 
 #[derive(Debug)]
-struct ExchangeableHierarchicalPartitionDistribution {
+pub struct ExchangeableHierarchicalPartitionDistribution {
     n_items: usize,
     max_n_clusters: usize,
     n_clusters_distribution: NumberOfClustersDistribution,
@@ -33,7 +31,7 @@ struct ExchangeableHierarchicalPartitionDistribution {
 
 #[derive(Debug)]
 #[allow(dead_code)]
-enum NumberOfClustersDistribution {
+pub enum NumberOfClustersDistribution {
     General {
         log_probability: Vec<f64>,
         weighted_index: WeightedIndex<f64>,
@@ -57,7 +55,7 @@ enum NumberOfClustersDistribution {
 
 #[derive(Debug)]
 #[allow(dead_code)]
-enum ClusterSizesDistribution {
+pub enum ClusterSizesDistribution {
     TiltedUniform {
         tilt: f64,
         table: Vec<Vec<f64>>,
@@ -73,7 +71,7 @@ enum ClusterSizesDistribution {
 }
 
 impl Builder {
-    fn new(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
+    pub fn new(n_items: usize, max_n_clusters: usize) -> Result<Self, &'static str> {
         if n_items == 0 {
             return Err("Number of items must be at least 1.");
         };
@@ -94,7 +92,7 @@ impl Builder {
         })
     }
 
-    fn general(
+    pub fn general(
         self,
         log_probability: &[f64],
     ) -> Result<BuilderWithNumberOfClustersDistribution, &'static str> {
@@ -124,7 +122,7 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    fn crp(
+    pub fn crp(
         builder: Builder,
         concentration: f64,
         discount: f64,
@@ -145,7 +143,7 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    fn binomial(
+    pub fn binomial(
         builder: Builder,
         n_trials: usize,
         probability: f64,
@@ -166,7 +164,7 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    fn poisson(
+    pub fn poisson(
         builder: Builder,
         rate: f64,
     ) -> Result<BuilderWithNumberOfClustersDistribution, &'static str> {
@@ -180,7 +178,7 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    fn negative_binomial(
+    pub fn negative_binomial(
         builder: Builder,
         n_successes: usize,
         probability: f64,
@@ -202,7 +200,7 @@ impl Builder {
 }
 
 impl BuilderWithNumberOfClustersDistribution {
-    fn new(builder: Builder, n_clusters_distribution: NumberOfClustersDistribution) -> Self {
+    pub fn new(builder: Builder, n_clusters_distribution: NumberOfClustersDistribution) -> Self {
         Self {
             n_items: builder.n_items,
             max_n_clusters: builder.max_n_clusters,
@@ -211,7 +209,7 @@ impl BuilderWithNumberOfClustersDistribution {
         }
     }
 
-    fn uniform(self) -> ExchangeableHierarchicalPartitionDistribution {
+    pub fn uniform(self) -> ExchangeableHierarchicalPartitionDistribution {
         let mut table = vec![vec![f64::NEG_INFINITY; self.max_n_clusters + 1]; self.n_items + 1];
         for j in 0..=self.max_n_clusters {
             table[0][j] = 0.0;
@@ -248,7 +246,7 @@ impl BuilderWithNumberOfClustersDistribution {
         }
     }
 
-    fn crp(self) -> ExchangeableHierarchicalPartitionDistribution {
+    pub fn crp(self) -> ExchangeableHierarchicalPartitionDistribution {
         // Generates a lookup table for log_stirling numbers with bounds on n and k.
         // The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
         // the valid k indices are 0 <= k <= min(n, k_max).
@@ -312,7 +310,7 @@ impl BuilderWithNumberOfClustersDistribution {
         }
     }
 
-    fn beta_binomial(
+    pub fn beta_binomial(
         self,
         alpha: f64,
         beta: f64,
@@ -334,8 +332,28 @@ impl BuilderWithNumberOfClustersDistribution {
 }
 
 impl ExchangeableHierarchicalPartitionDistribution {
+    pub fn n_items(&self) -> usize {
+        self.n_items
+    }
+
+    pub fn max_n_clusters(&self) -> usize {
+        self.max_n_clusters
+    }
+
+    pub fn n_clusters_distribution(&self) -> &NumberOfClustersDistribution {
+        &self.n_clusters_distribution
+    }
+
+    pub fn cluster_sizes_distribution(&self) -> &ClusterSizesDistribution {
+        &self.cluster_sizes_distribution
+    }
+
+    pub fn cluster_sizes_distribution_mut(&mut self) -> &mut ClusterSizesDistribution {
+        &mut self.cluster_sizes_distribution
+    }
+
     /// Sample a partition from the XHP distribution.
-    fn sample_partition<R: Rng>(&mut self, rng: &mut R) -> Vec<usize> {
+    pub fn sample_partition<R: Rng>(&mut self, rng: &mut R) -> Vec<usize> {
         let n_clusters = self.sample_n_clusters(rng);
         // unwrap is okay since n_clusters came from us.
         self.sample_partition_given_n_clusters(n_clusters, rng)
@@ -343,7 +361,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
     }
 
     /// Given a cluster size configuration, sample a partition from the XHP distribution.
-    fn sample_partition_given_n_clusters<R: Rng>(
+    pub fn sample_partition_given_n_clusters<R: Rng>(
         &mut self,
         n_clusters: usize,
         rng: &mut R,
@@ -358,7 +376,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
     }
 
     /// Given a cluster size configuration, sample a partition from the XHP distribution.
-    fn sample_partition_given_cluster_sizes<R: Rng>(
+    pub fn sample_partition_given_cluster_sizes<R: Rng>(
         &self,
         cluster_sizes: &[usize],
         rng: &mut R,
@@ -398,7 +416,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
     }
 
     /// Sample a number of clusters from the XHP distribution.
-    fn sample_n_clusters<R: Rng>(&self, rng: &mut R) -> usize {
+    pub fn sample_n_clusters<R: Rng>(&self, rng: &mut R) -> usize {
         self.n_clusters_distribution.sample(rng)
     }
 
@@ -416,12 +434,15 @@ impl ExchangeableHierarchicalPartitionDistribution {
     }
 
     /// Log probability of a partition
-    fn log_probability_partition<'a, T: 'a + Eq + Hash + Copy>(&self, partition: &[T]) -> f64 {
+    pub fn log_probability_partition<'a, T: 'a + Eq + Hash + Copy>(&self, partition: &[T]) -> f64 {
         let mut cluster_sizes = Self::compute_cluster_sizes(partition.iter());
         self.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
     }
 
-    fn log_probability_partition_using_cluster_sizes(&self, cluster_sizes: &mut [usize]) -> f64 {
+    pub fn log_probability_partition_using_cluster_sizes(
+        &self,
+        cluster_sizes: &mut [usize],
+    ) -> f64 {
         let mut sum = self.log_probability_n_clusters(cluster_sizes.len());
         sum += self
             .cluster_sizes_distribution
@@ -430,7 +451,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
         sum
     }
 
-    fn log_probability_n_clusters(&self, n_clusters: usize) -> f64 {
+    pub fn log_probability_n_clusters(&self, n_clusters: usize) -> f64 {
         if n_clusters > self.max_n_clusters {
             f64::NEG_INFINITY
         } else {
@@ -438,7 +459,7 @@ impl ExchangeableHierarchicalPartitionDistribution {
         }
     }
 
-    fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
+    pub fn log_probability_partition_given_cluster_sizes(&self, cluster_sizes: &[usize]) -> f64 {
         let n_items = cluster_sizes.iter().sum::<usize>();
         if n_items != self.n_items {
             return f64::NEG_INFINITY;
@@ -459,14 +480,14 @@ impl ExchangeableHierarchicalPartitionDistribution {
 }
 
 impl NumberOfClustersDistribution {
-    fn sample<R: Rng>(&self, rng: &mut R) -> usize {
+    pub fn sample<R: Rng>(&self, rng: &mut R) -> usize {
         match self {
             Self::General { weighted_index, .. } => weighted_index.sample(rng),
             _ => panic!("Not yet implemented."),
         }
     }
 
-    fn log_probability(&self, n_clusters: usize) -> f64 {
+    pub fn log_probability(&self, n_clusters: usize) -> f64 {
         match self {
             Self::General {
                 log_probability, ..
@@ -479,7 +500,7 @@ impl NumberOfClustersDistribution {
 }
 
 impl ClusterSizesDistribution {
-    fn update_tilt(&mut self, x: f64) {
+    pub fn update_tilt(&mut self, x: f64) {
         match self {
             Self::TiltedUniform { tilt, .. } => *tilt = x,
             Self::TiltedCRP { tilt, .. } => *tilt = x,
@@ -487,7 +508,7 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn sample<R: Rng>(
+    pub fn sample<R: Rng>(
         &self,
         xhp: &ExchangeableHierarchicalPartitionDistribution,
         n_clusters: usize,
@@ -565,7 +586,7 @@ impl ClusterSizesDistribution {
         }
     }
 
-    fn log_probability(
+    pub fn log_probability(
         &self,
         xhp: &ExchangeableHierarchicalPartitionDistribution,
         cluster_sizes: &mut [usize],
@@ -693,165 +714,13 @@ impl ClusterSizesDistribution {
 }
 
 #[roxido(module = xhp)]
-fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribution: &RList) {
-    let max_n_clusters = n_clusters_log_weights.len();
-    let builder = Builder::new(n_items, max_n_clusters).stop();
-    let n_clusters_log_weights = n_clusters_log_weights.to_f64(pc);
-    let builder = builder.general(n_clusters_log_weights.slice()).stop();
-    let csd_name = cluster_sizes_distribution.get_by_key("method").stop();
-    let csd_name = csd_name.as_scalar().stop();
-    let xhp = match csd_name.str(pc) {
-        "uniform" => builder.uniform(),
-        "tilted_uniform" => {
-            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
-            let tilt = tilt.as_scalar().stop();
-            let tilt = tilt.f64();
-            let mut builder = builder.uniform();
-            builder.cluster_sizes_distribution.update_tilt(tilt);
-            builder
-        }
-        "crp" => builder.crp(),
-        "tilted_crp" => {
-            let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
-            let tilt = tilt.as_scalar().stop();
-            let tilt = tilt.f64();
-            let mut builder = builder.crp();
-            builder.cluster_sizes_distribution.update_tilt(tilt);
-            builder
-        }
-        "tilted_beta_binomial" => {
-            let get_f64 = |name: &str| -> f64 {
-                let x = cluster_sizes_distribution.get_by_key(name).stop();
-                let x = x.as_scalar().stop();
-                let x = x.f64();
-                if x <= 0.0 {
-                    stop!("'{}' must be greater than 0.0 but is {}.", name, x)
-                }
-                x
-            };
-            builder
-                .beta_binomial(get_f64("alpha"), get_f64("beta"))
-                .stop()
-        }
-        e => stop!("Unrecognized cluster size distribution: {}", e),
-    };
-    let result = RExternalPtr::encode(xhp, "xhp", pc);
-    result.set_class(["xhp"].to_r(pc));
-    result
-}
-
-#[roxido(module = xhp)]
-fn sample_partition(xhp: &mut RExternalPtr) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = xhp.sample_partition(&mut rng);
-    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
-}
-
-#[roxido(module = xhp)]
-fn sample_partition_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = xhp
-        .sample_partition_given_n_clusters(n_clusters, &mut rng)
-        .stop();
-    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
-}
-
-#[roxido(module = xhp)]
-fn sample_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let cluster_sizes = cluster_sizes.to_i32(pc);
-    let cluster_sizes = cluster_sizes
-        .slice()
-        .iter()
-        .map(|&x| usize::try_from(x).stop())
-        .collect::<Vec<_>>();
-    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let partition = xhp
-        .sample_partition_given_cluster_sizes(&cluster_sizes, &mut rng)
-        .stop();
-    partition.into_iter().map(|x| i32::try_from(x).stop() + 1)
-}
-
-#[roxido(module = xhp)]
-fn sample_n_clusters(xhp: &mut RExternalPtr) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let cluster_sizes = xhp.sample_n_clusters(&mut rng);
-    i32::try_from(cluster_sizes).stop()
-}
-
-#[roxido(module = xhp)]
-fn sample_cluster_sizes_given_n_clusters(xhp: &mut RExternalPtr, n_clusters: usize) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let mut rng = Pcg64Mcg::from_seed(R::random_bytes::<16>());
-    let cluster_sizes = xhp
-        .cluster_sizes_distribution
-        .sample(xhp, n_clusters, &mut rng)
-        .stop();
-    cluster_sizes.into_iter().map(|x| i32::try_from(x).stop())
-}
-
-#[roxido(module = xhp)]
-fn log_probability_partition(xhp: &mut RExternalPtr, partition: &RVector) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let partition = partition.to_i32(pc);
-    let slice = partition.slice();
-    xhp.log_probability_partition(slice)
-}
-
-#[roxido(module = xhp)]
-fn log_probability_partition_using_cluster_sizes(xhp: &RExternalPtr, cluster_sizes: &RVector) {
-    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
-    let cluster_sizes = cluster_sizes.to_i32(pc);
-    let mut cluster_sizes = cluster_sizes
-        .slice()
-        .iter()
-        .map(|&c| usize::try_from(c).stop())
-        .collect::<Vec<_>>();
-    xhp.log_probability_partition_using_cluster_sizes(&mut cluster_sizes)
-}
-
-#[roxido(module = xhp)]
-fn log_probability_n_clusters(xhp: &RExternalPtr, n_clusters: usize) {
-    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
-    xhp.log_probability_n_clusters(n_clusters)
-}
-
-#[roxido(module = xhp)]
-fn log_probability_cluster_sizes_given_n_clusters(xhp: &RExternalPtr, cluster_sizes: &RVector) {
-    let xhp = xhp.decode_ref::<ExchangeableHierarchicalPartitionDistribution>();
-    let cluster_sizes = cluster_sizes.to_i32(pc);
-    let mut cluster_sizes = cluster_sizes
-        .slice()
-        .iter()
-        .map(|&c| usize::try_from(c).stop())
-        .collect::<Vec<_>>();
-    xhp.cluster_sizes_distribution
-        .log_probability(xhp, &mut cluster_sizes)
-}
-
-#[roxido(module = xhp)]
-fn log_probability_partition_given_cluster_sizes(xhp: &mut RExternalPtr, cluster_sizes: &RVector) {
-    let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    let cluster_sizes = cluster_sizes.to_i32(pc);
-    let cluster_sizes = cluster_sizes
-        .slice()
-        .iter()
-        .map(|&c| usize::try_from(c).stop())
-        .collect::<Vec<_>>();
-    xhp.log_probability_partition_given_cluster_sizes(&cluster_sizes)
-}
-
-#[roxido(module = xhp)]
 fn print(xhp: &mut RExternalPtr) {
     rprintln!("Generalized Hierarchical Uniform Partition Distribution (xhp)");
     let xhp = xhp.decode_mut::<ExchangeableHierarchicalPartitionDistribution>();
-    rprintln!("  + Number of items: {}", xhp.n_items);
-    rprintln!("  + Maximum number of clusters: {}", xhp.max_n_clusters);
+    rprintln!("  + Number of items: {}", xhp.n_items());
+    rprintln!("  + Maximum number of clusters: {}", xhp.max_n_clusters());
     rprint!("  + Number of clusters distribution: ");
-    match &xhp.n_clusters_distribution {
+    match &xhp.n_clusters_distribution() {
         NumberOfClustersDistribution::General { weighted_index, .. } => {
             rprintln!(
                 "General({})",
