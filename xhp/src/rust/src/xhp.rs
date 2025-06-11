@@ -60,6 +60,11 @@ pub enum ClusterSizesDistribution {
         tilt: f64,
         table: Vec<Vec<f64>>,
     },
+    CRP {
+        concentration: f64,
+        discount: f64,
+        log_stirling: Vec<Vec<f64>>,
+    },
     TiltedCRP {
         tilt: f64,
         log_stirling: Vec<Vec<f64>>,
@@ -515,6 +520,13 @@ impl ClusterSizesDistribution {
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
         match self {
+            Self::CRP {
+                concentration,
+                discount,
+                ..
+            } => {
+                unimplemented!();
+            }
             Self::TiltedUniform { tilt, .. } => {
                 if n_clusters > xhp.max_n_clusters || n_clusters == 0 {
                     return Err(
@@ -592,6 +604,13 @@ impl ClusterSizesDistribution {
         cluster_sizes: &mut [usize],
     ) -> f64 {
         match self {
+            Self::CRP {
+                concentration,
+                discount,
+                ..
+            } => {
+                unimplemented!();
+            }
             Self::TiltedUniform { tilt, .. } => {
                 let n_clusters = cluster_sizes.len();
                 if n_clusters > xhp.max_n_clusters {
