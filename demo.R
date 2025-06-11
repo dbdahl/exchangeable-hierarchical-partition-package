@@ -174,7 +174,7 @@ sum(sapply(1:5, \(x) {
 
 # CRP
 
-distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 2.0))
+distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp1", concentration = 2.0))
 x <- table(sapply(seq_len(20000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 4))), collapse = "")))
 x / sum(x)
 
@@ -193,19 +193,19 @@ z / sum(z)
 
 # Tilted CRP
 
-distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 0))
+distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp1", concentration = 1.0, tilt = 0))
 x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
-distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp", concentration = 1.0, discount = 0.3))
+distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "crp1", concentration = 1.0, discount = 0.3))
 x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
-distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 2))
+distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp1", concentration = 1.0, tilt = 2))
 x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
-distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp", concentration = 1.0, tilt = 20))
+distr <- xhp::new(9, log(c(1, 1, 1, 1)), list(method = "tilted_crp1", concentration = 1.0, tilt = 20))
 x <- table(sapply(seq_len(10000), \(x) paste0(rev(sort(xhp::sample_cluster_sizes_given_n_clusters(distr, 3))), collapse = "")))
 x / sum(x)
 
@@ -219,7 +219,7 @@ dim(sampled_partitions)
 print(system.time(apply(sampled_partitions, 2, \(partition) xhp::log_probability_partition(distr, partition))))
 
 
-distr <- xhp::new(1000000, rep(1, 100), list(method = "crp", concentration = 1.0))
+distr <- xhp::new(1000000, rep(1, 100), list(method = "crp1", concentration = 1.0))
 cluster_sizes <- rev(sort(table(xhp::sample_partition(distr))))
 xhp::log_probability_cluster_sizes_given_n_clusters(distr, cluster_sizes)
 print(system.time(sampled_partitions <- sapply(seq_len(1000), \(x) xhp::sample_partition(distr))))
@@ -239,7 +239,7 @@ engine <- function(cluster_sizes_distribution) {
 microbenchmark::microbenchmark(
   engine(list(method = "uniform")),
   engine(list(method = "tilted_uniform", tilt = 0.0000000000001)),
-  engine(list(method = "crp", concentration = 1.0)),
-  engine(list(method = "tilted_crp", concentration = 1.0, tilt = 0.0000000000001)),
+  engine(list(method = "crp1", concentration = 1.0)),
+  engine(list(method = "tilted_crp1", concentration = 1.0, tilt = 0.0000000000001)),
 times = 5)
 
