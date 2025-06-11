@@ -36,7 +36,7 @@ pub enum NumberOfClustersDistribution {
         log_probability: Vec<f64>,
         weighted_index: WeightedIndex<f64>,
     },
-    Crp {
+    Crp2 {
         concentration: f64,
         discount: f64,
     },
@@ -60,12 +60,12 @@ pub enum ClusterSizesDistribution {
         tilt: f64,
         table: Vec<Vec<f64>>,
     },
-    CRP {
+    Crp2 {
         concentration: f64,
         discount: f64,
         log_stirling: Vec<Vec<f64>>,
     },
-    TiltedCRP {
+    TiltedCrp1 {
         tilt: f64,
         log_stirling: Vec<Vec<f64>>,
     },
@@ -127,7 +127,7 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    pub fn crp(
+    pub fn crp2(
         builder: Builder,
         concentration: f64,
         discount: f64,
@@ -140,7 +140,7 @@ impl Builder {
         }
         Ok(BuilderWithNumberOfClustersDistribution::new(
             builder,
-            NumberOfClustersDistribution::Crp {
+            NumberOfClustersDistribution::Crp2 {
                 concentration,
                 discount,
             },
@@ -251,59 +251,30 @@ impl BuilderWithNumberOfClustersDistribution {
         }
     }
 
-    pub fn crp(self) -> ExchangeableHierarchicalPartitionDistribution {
-        // Generates a lookup table for log_stirling numbers with bounds on n and k.
-        // The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
-        // the valid k indices are 0 <= k <= min(n, k_max).
-        //
-        // The recurrence is defined as:
-        // - log_stirling(0, 0) = 0.0,
-        // - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
-        // - For n <= k_max, log_stirling(n, n) = 0.0,
-        // - Otherwise for 1 <= k <= min(n, k_max):
-        //   log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
-        //   ln(n-1) + log_stirling(n-1, k) )
-        //
-        // # Arguments
-        //
-        // * `n_max` - maximum n value to compute.
-        // * `k_max` - maximum k value to compute (for each n, only values up to min(n, k_max) are computed).
-        // Allocate table where row n has min(n, k_max)+1 entries.
-        let mut log_stirling: Vec<Vec<f64>> = Vec::with_capacity(self.n_items + 1);
-        for n in 0..=self.n_items {
-            let num_cols = std::cmp::min(n, self.max_n_clusters) + 1;
-            log_stirling.push(vec![f64::NEG_INFINITY; num_cols]);
-        }
-        /// Computes log(exp(a) + exp(b)) in a numerically stable way.
-        fn log_sum_exp(a: f64, b: f64) -> f64 {
-            if a == f64::NEG_INFINITY && b == f64::NEG_INFINITY {
-                return f64::NEG_INFINITY;
-            }
-            let m = a.max(b);
-            m + ((a - m).exp() + (b - m).exp()).ln()
-        }
-        // Base case: log_stirling(0, 0) = log(1) = 0.
-        log_stirling[0][0] = 0.0;
-        // Build the table using the recurrence.
-        for n in 1..=self.n_items {
-            let max_k = std::cmp::min(n, self.max_n_clusters);
-            for k in 1..=max_k {
-                // When n equals k (and n <= k_max), there's exactly one permutation so log(1) = 0.
-                if n <= self.max_n_clusters && n == k {
-                    log_stirling[n][k] = 0.0;
-                } else {
-                    // Use the recurrence:
-                    // log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
-                    //                                   ln(n-1) + log_stirling(n-1, k) )
-                    log_stirling[n][k] = log_sum_exp(
-                        log_stirling[n - 1][k - 1],
-                        ((n - 1) as f64).ln() + log_stirling[n - 1][k],
-                    );
-                }
-            }
-        }
-        let dist = ClusterSizesDistribution::TiltedCRP {
+    pub fn crp1(self) -> ExchangeableHierarchicalPartitionDistribution {
+        let log_stirling = Self::generate_log_stirling_table(self.n_items, self.max_n_clusters);
+        let dist = ClusterSizesDistribution::TiltedCrp1 {
             tilt: 0.0,
+            log_stirling,
+        };
+        ExchangeableHierarchicalPartitionDistribution {
+            n_items: self.n_items,
+            max_n_clusters: self.max_n_clusters,
+            n_clusters_distribution: self.n_clusters_distribution,
+            cluster_sizes_distribution: dist,
+            log_factorial: self.log_factorial,
+        }
+    }
+
+    pub fn crp2(
+        self,
+        concentration: f64,
+        discount: f64,
+    ) -> ExchangeableHierarchicalPartitionDistribution {
+        let log_stirling = Self::generate_log_stirling_table(self.n_items, self.max_n_clusters);
+        let dist = ClusterSizesDistribution::Crp2 {
+            concentration,
+            discount,
             log_stirling,
         };
         ExchangeableHierarchicalPartitionDistribution {
@@ -333,6 +304,63 @@ impl BuilderWithNumberOfClustersDistribution {
             };
             Ok(xhp)
         }
+    }
+
+    /// Generates a lookup table for log_stirling numbers with bounds on n and k.
+    /// The table is a Vec<Vec<f64>> where for each n (0 <= n <= n_max)
+    /// the valid k indices are 0 <= k <= min(n, k_max).
+    ///
+    /// The recurrence is defined as:
+    /// - log_stirling(0, 0) = 0.0,
+    /// - For n > 0, log_stirling(n, 0) = f64::NEG_INFINITY,
+    /// - For n <= k_max, log_stirling(n, n) = 0.0,
+    /// - Otherwise for 1 <= k <= min(n, k_max):
+    ///   log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+    ///   ln(n-1) + log_stirling(n-1, k) )
+    ///
+    /// # Arguments
+    ///
+    /// * `n_max` - maximum n value to compute.
+    /// * `k_max` - maximum k value to compute (for each n, only values up to min(n, k_max) are computed).
+    fn generate_log_stirling_table(n_max: usize, k_max: usize) -> Vec<Vec<f64>> {
+        // Allocate table where row n has min(n, k_max)+1 entries.
+        let mut table: Vec<Vec<f64>> = Vec::with_capacity(n_max + 1);
+        for n in 0..=n_max {
+            let num_cols = std::cmp::min(n, k_max) + 1;
+            table.push(vec![f64::NEG_INFINITY; num_cols]);
+        }
+
+        // Base case: log_stirling(0, 0) = log(1) = 0.
+        table[0][0] = 0.0;
+
+        // Build the table using the recurrence.
+        for n in 1..=n_max {
+            let max_k = std::cmp::min(n, k_max);
+            for k in 1..=max_k {
+                // When n equals k (and n <= k_max), there's exactly one permutation so log(1) = 0.
+                if n <= k_max && n == k {
+                    table[n][k] = 0.0;
+                } else {
+                    // Use the recurrence:
+                    // log_stirling(n, k) = log_sum_exp( log_stirling(n-1, k-1),
+                    //                                   ln(n-1) + log_stirling(n-1, k) )
+                    table[n][k] = Self::log_sum_exp(
+                        table[n - 1][k - 1],
+                        ((n - 1) as f64).ln() + table[n - 1][k],
+                    );
+                }
+            }
+        }
+        table
+    }
+
+    /// Computes log(exp(a) + exp(b)) in a numerically stable way.
+    fn log_sum_exp(a: f64, b: f64) -> f64 {
+        if a == f64::NEG_INFINITY && b == f64::NEG_INFINITY {
+            return f64::NEG_INFINITY;
+        }
+        let m = a.max(b);
+        m + ((a - m).exp() + (b - m).exp()).ln()
     }
 }
 
@@ -508,7 +536,7 @@ impl ClusterSizesDistribution {
     pub fn update_tilt(&mut self, x: f64) {
         match self {
             Self::TiltedUniform { tilt, .. } => *tilt = x,
-            Self::TiltedCRP { tilt, .. } => *tilt = x,
+            Self::TiltedCrp1 { tilt, .. } => *tilt = x,
             _ => {}
         }
     }
@@ -520,7 +548,7 @@ impl ClusterSizesDistribution {
         rng: &mut R,
     ) -> Result<Vec<usize>, &'static str> {
         match self {
-            Self::CRP {
+            Self::Crp2 {
                 concentration,
                 discount,
                 ..
@@ -554,7 +582,7 @@ impl ClusterSizesDistribution {
                 }
                 Ok(cluster_sizes)
             }
-            Self::TiltedCRP {
+            Self::TiltedCrp1 {
                 tilt, log_stirling, ..
             } => {
                 // Start with the full set of items and clusters.
@@ -604,7 +632,7 @@ impl ClusterSizesDistribution {
         cluster_sizes: &mut [usize],
     ) -> f64 {
         match self {
-            Self::CRP {
+            Self::Crp2 {
                 concentration,
                 discount,
                 ..
@@ -648,7 +676,7 @@ impl ClusterSizesDistribution {
                 }
                 sum_log_probability
             }
-            Self::TiltedCRP {
+            Self::TiltedCrp1 {
                 tilt, log_stirling, ..
             } => {
                 let n_clusters = cluster_sizes.len();
@@ -750,7 +778,7 @@ fn print(xhp: &mut RExternalPtr) {
                     .join(", ")
             );
         }
-        NumberOfClustersDistribution::Crp {
+        NumberOfClustersDistribution::Crp2 {
             concentration,
             discount,
         } => {

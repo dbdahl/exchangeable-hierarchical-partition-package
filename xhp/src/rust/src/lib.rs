@@ -163,14 +163,25 @@ fn new(n_items: usize, n_clusters_log_weights: &RVector, cluster_sizes_distribut
             builder.cluster_sizes_distribution_mut().update_tilt(tilt);
             builder
         }
-        "crp" => builder.crp(),
-        "tilted_crp" => {
+        "crp1" => builder.crp1(),
+        "tilted_crp1" => {
             let tilt = cluster_sizes_distribution.get_by_key("tilt").stop();
             let tilt = tilt.as_scalar().stop();
             let tilt = tilt.f64();
-            let mut builder = builder.crp();
+            let mut builder = builder.crp1();
             builder.cluster_sizes_distribution_mut().update_tilt(tilt);
             builder
+        }
+        "crp2" => {
+            let concentration = cluster_sizes_distribution
+                .get_by_key("concentration")
+                .stop();
+            let concentration = concentration.as_scalar().stop();
+            let concentration = concentration.f64();
+            let discount = cluster_sizes_distribution.get_by_key("discount").stop();
+            let discount = discount.as_scalar().stop();
+            let discount = discount.f64();
+            builder.crp2(concentration, discount)
         }
         "tilted_beta_binomial" => {
             let get_f64 = |name: &str| -> f64 {
